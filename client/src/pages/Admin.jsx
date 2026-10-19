@@ -1,45 +1,93 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, euro, formatDate, getToken, setToken } from '../api.js'
+import { Link } from 'react-router-dom'
+import { api, euro, formatShortDate, getToken, setToken, todayISO } from '../api.js'
+import { Button, Field, Icon } from '../ui.jsx'
+
+const EMPTY_SESSION = { date: '', time: '', capacity: '16', price: '25' }
 
 function Login({ onLogin }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
   const submit = async (e) => {
     e.preventDefault()
+    if (!password) return setError('Inserisci la password')
+    setSubmitting(true)
     try {
       const { token } = await api('/admin/login', { method: 'POST', body: { password } })
       setToken(token)
       onLogin()
     } catch (err) {
       setError(err.message)
+      setSubmitting(false)
     }
   }
+
   return (
-    <form onSubmit={submit} className="card form">
-      <h2>Area gestore</h2>
-      {error && <p className="err">{error}</p>}
-      <label>Password<input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-      <button className="btn">Accedi</button>
-    </form>
+    <main className="manager-login">
+      <Link className="back-home" to="/">
+        ← Torna al sito
+      </Link>
+      <form onSubmit={submit} className="login-card" noValidate>
+        <span className="manager-mark">
+          <Icon name="gear" size={30} />
+        </span>
+        <span className="eyebrow">Area riservata</span>
+        <h1>Accesso gestore</h1>
+        <p>Inserisci la password per gestire prenotazioni e sessioni.</p>
+        <Field
+          label="Password"
+          type="password"
+          placeholder="••••••••"
+          autoComplete="current-password"
+          value={password}
+          error={error}
+          onChange={(e) => {
+            setPassword(e.target.value)
+            setError('')
+          }}
+        />
+        <Button type="submit" icon="arrow" disabled={submitting}>
+          {submitting ? 'Accesso...' : 'Accedi'}
+        </Button>
+        <small>Accesso riservato allo staff di Paintball Arena</small>
+      </form>
+    </main>
   )
 }
 
 function Dashboard({ onLogout }) {
-  const [slots, setSlots] = useState([])
-  const [bookings, setBookings] = useState([])
+  const [tab, setTab] = useState('bookings')
+  const [bookings, setBookings] = useState(null)
+  const [slots, setSlots] = useState(null)
   const [error, setError] = useState('')
-  const [form, setForm] = useState({ date: '', time: '', capacity: 12, price: 25 })
+  const [query, setQuery] = useState('')
+  const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
+  const [saving, setSaving] = useState(false)
+  const [today] = useState(todayISO)
+  const [todayLabel] = useState(() =>
+    new Date().toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }),
+  )
 
-  const load = useCallback(async () => {
-    try {
-      const [s, b] = await Promise.all([api('/slots?from=1970-01-01'), api('/admin/bookings', { admin: true })])
-      setSlots(s)
-      setBookings(b)
-    } catch (e) {
-      setError(e.message)
-      if (!getToken()) onLogout()
-    }
-  }, [onLogout])
+  const handleError = useCallback(
+    (e) => {
+      if (e.status === 401) {
+        setToken(null)
+        onLogout()
+      } else setError(e.message)
+    },
+    [onLogout],
+  )
+
+  const load = useCallback(
+    () =>
+      Promise.all([api('/slots?from=1970-01-01'), api('/admin/bookings', { admin: true })]).then(([s, b]) => {
+        setSlots(s)
+        setBookings(b)
+      }, handleError),
+    [handleError],
+  )
 
   useEffect(() => {
     load()
@@ -50,75 +98,296 @@ function Dashboard({ onLogout }) {
     try {
       await fn()
       await load()
+      return true
     } catch (e) {
-      setError(e.message)
-      if (!getToken()) onLogout()
+      handleError(e)
+      return false
     }
   }
 
-  const addSlot = (e) => {
+  const addSession = async (e) => {
     e.preventDefault()
-    run(() =>
+    const { date, time, capacity, price } = sessionForm
+    if (!date || !time) return setError('Inserisci data e ora della sessione')
+    setSaving(true)
+    const ok = await run(() =>
       api('/admin/slots', {
         method: 'POST',
         admin: true,
-        body: {
-          date: form.date,
-          time: form.time,
-          capacity: Number(form.capacity),
-          priceCents: Math.round(Number(form.price) * 100),
-        },
-      })
+        body: { date, time, capacity: Number(capacity), priceCents: Math.round(Number(price) * 100) },
+      }),
     )
+    setSaving(false)
+    if (ok) setSessionForm({ ...sessionForm, date: '', time: '' })
   }
 
-  const del = (path, msg) => {
-    if (confirm(msg)) run(() => api(path, { method: 'DELETE', admin: true }))
+  const remove = (path, message) => {
+    if (window.confirm(message)) run(() => api(path, { method: 'DELETE', admin: true }))
   }
 
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+  const setField = (key) => (e) => setSessionForm({ ...sessionForm, [key]: e.target.value })
+
+  const loading = bookings === null || slots === null
+  const q = query.trim().toLowerCase()
+  const visibleBookings = (bookings ?? []).filter(
+    (b) => !q || b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q),
+  )
+  const upcoming = (bookings ?? []).filter((b) => b.date >= today)
 
   return (
-    <>
-      <div className="row between">
-        <h1>Area gestore</h1>
-        <button className="btn ghost" onClick={() => { setToken(null); onLogout() }}>Esci</button>
-      </div>
-      {error && <p className="err">{error}</p>}
-
-      <form onSubmit={addSlot} className="card form inline">
-        <h3>Nuova sessione</h3>
-        <label>Data<input type="date" required value={form.date} onChange={set('date')} /></label>
-        <label>Ora<input type="time" required value={form.time} onChange={set('time')} /></label>
-        <label>Posti<input type="number" min="1" required value={form.capacity} onChange={set('capacity')} /></label>
-        <label>Prezzo €<input type="number" min="0" step="0.01" required value={form.price} onChange={set('price')} /></label>
-        <button className="btn">Aggiungi</button>
-      </form>
-
-      <h2>Sessioni e prenotazioni</h2>
-      {slots.length === 0 && <p>Nessuna sessione.</p>}
-      {slots.map((s) => (
-        <div key={s.id} className="card">
-          <div className="row between">
-            <strong>{formatDate(s.date)} · {s.time} — {s.capacity - s.available}/{s.capacity} posti · {euro(s.price_cents)}</strong>
-            <button className="btn danger" onClick={() => del(`/admin/slots/${s.id}`, 'Eliminare la sessione e le sue prenotazioni?')}>Elimina sessione</button>
+    <main className="dashboard">
+      <header className="dashboard-head">
+        <div>
+          <span className="manager-mark">
+            <Icon name="target" size={25} />
+          </span>
+          <div>
+            <strong>
+              PAINTBALL <b>ARENA</b>
+            </strong>
+            <small>Area gestore</small>
           </div>
-          <ul>
-            {bookings.filter((b) => b.slot_id === s.id).map((b) => (
-              <li key={b.id} className="row between">
-                <span>{b.name} ({b.players}) · {b.email} · {b.phone}</span>
-                <button className="btn ghost" onClick={() => del(`/admin/bookings/${b.id}`, 'Cancellare la prenotazione?')}>Cancella</button>
-              </li>
-            ))}
-          </ul>
         </div>
-      ))}
-    </>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setToken(null)
+            onLogout()
+          }}
+        >
+          Esci
+        </Button>
+      </header>
+      <div className="dashboard-shell">
+        <div className="dashboard-title">
+          <div>
+            <span className="eyebrow">Area gestore</span>
+            <h1>Dashboard</h1>
+            <p>Gestisci le prenotazioni e la disponibilità dei turni.</p>
+          </div>
+          <div className="today">
+            <Icon name="calendar" />
+            <span>
+              <small>Oggi</small>
+              {todayLabel}
+            </span>
+          </div>
+        </div>
+        {error && (
+          <p className="alert" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="dashboard-stats">
+          <div>
+            <span>Prenotazioni oggi</span>
+            <strong>{loading ? '–' : bookings.filter((b) => b.date === today).length}</strong>
+          </div>
+          <div>
+            <span>Giocatori attesi</span>
+            <strong>{loading ? '–' : upcoming.reduce((sum, b) => sum + b.players, 0)}</strong>
+          </div>
+          <div>
+            <span>Sessioni attive</span>
+            <strong>{loading ? '–' : slots.filter((s) => s.date >= today).length}</strong>
+          </div>
+        </div>
+        <div className="tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'bookings'}
+            className={tab === 'bookings' ? 'active' : ''}
+            onClick={() => setTab('bookings')}
+          >
+            Prenotazioni <span>{bookings?.length ?? 0}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'sessions'}
+            className={tab === 'sessions' ? 'active' : ''}
+            onClick={() => setTab('sessions')}
+          >
+            Sessioni <span>{slots?.length ?? 0}</span>
+          </button>
+        </div>
+
+        {tab === 'bookings' && (
+          <section className="admin-panel">
+            <div className="admin-panel-head">
+              <div>
+                <h2>Prenotazioni</h2>
+                <p>Tutte le prenotazioni confermate.</p>
+              </div>
+              <label className="search">
+                <span aria-hidden="true">⌕</span>
+                <input
+                  placeholder="Cerca per nome o email"
+                  aria-label="Cerca per nome o email"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </label>
+            </div>
+            {loading ? (
+              <div className="state-card">
+                <span className="spinner" />
+                <h4>Caricamento...</h4>
+              </div>
+            ) : visibleBookings.length === 0 ? (
+              <div className="admin-empty">
+                <Icon name="calendar" size={34} />
+                <h3>{bookings.length ? 'Nessun risultato' : 'Nessuna prenotazione'}</h3>
+                <p>{bookings.length ? 'Nessuna prenotazione corrisponde alla ricerca.' : 'Le nuove prenotazioni appariranno qui.'}</p>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Ora</th>
+                      <th>Nome</th>
+                      <th>Email</th>
+                      <th>Telefono</th>
+                      <th>Giocatori</th>
+                      <th>
+                        <span className="sr-only">Azioni</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleBookings.map((booking) => (
+                      <tr key={booking.id}>
+                        <td>
+                          <strong>{formatShortDate(booking.date)}</strong>
+                        </td>
+                        <td>{booking.time}</td>
+                        <td>{booking.name}</td>
+                        <td>{booking.email}</td>
+                        <td>{booking.phone}</td>
+                        <td>
+                          <span className="players-pill">
+                            <Icon name="users" size={15} /> {booking.players}
+                          </span>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="delete"
+                            aria-label={`Elimina prenotazione di ${booking.name}`}
+                            onClick={() =>
+                              remove(`/admin/bookings/${booking.id}`, `Cancellare la prenotazione di ${booking.name}?`)
+                            }
+                          >
+                            <Icon name="trash" size={18} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {tab === 'sessions' && (
+          <section className="sessions-layout">
+            <form className="session-form admin-panel" onSubmit={addSession}>
+              <div>
+                <h2>Aggiungi sessione</h2>
+                <p>Crea un nuovo turno prenotabile.</p>
+              </div>
+              <Field label="Data" type="date" required min={today} value={sessionForm.date} onChange={setField('date')} />
+              <Field label="Ora" type="time" required value={sessionForm.time} onChange={setField('time')} />
+              <div className="two-fields">
+                <Field
+                  label="Capienza"
+                  type="number"
+                  required
+                  min="1"
+                  max="500"
+                  value={sessionForm.capacity}
+                  onChange={setField('capacity')}
+                />
+                <Field
+                  label="Prezzo (€)"
+                  type="number"
+                  required
+                  min="0"
+                  step="0.01"
+                  value={sessionForm.price}
+                  onChange={setField('price')}
+                />
+              </div>
+              <Button type="submit" icon="plus" disabled={saving}>
+                Aggiungi turno
+              </Button>
+            </form>
+            <div className="admin-panel session-list">
+              <div>
+                <h2>Sessioni</h2>
+                <p>Tutti i turni creati, con i posti già prenotati.</p>
+              </div>
+              {loading ? (
+                <div className="state-card">
+                  <span className="spinner" />
+                  <h4>Caricamento...</h4>
+                </div>
+              ) : slots.length === 0 ? (
+                <div className="admin-empty">
+                  <Icon name="calendar" size={34} />
+                  <h3>Nessuna sessione</h3>
+                  <p>Crea il primo turno con il modulo qui accanto.</p>
+                </div>
+              ) : (
+                slots.map((session) => (
+                  <article key={session.id}>
+                    <div className="session-date">
+                      <Icon name="calendar" />
+                      <span>
+                        <strong>{formatShortDate(session.date)}</strong>
+                        <small>{session.time}</small>
+                      </span>
+                    </div>
+                    <div>
+                      <span>Prenotati</span>
+                      <strong>
+                        {session.capacity - session.available}/{session.capacity} posti
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Prezzo</span>
+                      <strong>{euro(session.price_cents)}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="delete"
+                      aria-label={`Elimina sessione del ${formatShortDate(session.date)} alle ${session.time}`}
+                      onClick={() =>
+                        remove(
+                          `/admin/slots/${session.id}`,
+                          'Eliminare la sessione? Verranno cancellate anche tutte le sue prenotazioni.',
+                        )
+                      }
+                    >
+                      <Icon name="trash" size={18} />
+                    </button>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+        )}
+      </div>
+    </main>
   )
 }
 
 export default function Admin() {
-  const [logged, setLogged] = useState(!!getToken())
+  const [logged, setLogged] = useState(() => !!getToken())
   const logout = useCallback(() => setLogged(false), [])
   return logged ? <Dashboard onLogout={logout} /> : <Login onLogin={() => setLogged(true)} />
 }

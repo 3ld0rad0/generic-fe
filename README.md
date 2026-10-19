@@ -3,14 +3,15 @@
 Sito di gestione per un campo da paintball: vetrina, prenotazione sessioni con disponibilità e area gestore.
 
 - `client/` — React + Vite
-- `server/` — Node + Express + SQLite (better-sqlite3)
+- `server/` — Python + FastAPI + SQLite (sqlite3)
 
 ## Sviluppo
 
 ```bash
-cd server && ADMIN_PASSWORD=admin npm run dev   # API su :3000
+cd server && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # una tantum
+cd server && ADMIN_PASSWORD=admin .venv/bin/uvicorn app.main:create_default_app --factory --reload --port 3000   # API su :3000
 cd client && npm run dev                         # UI su :5173 (proxy /api)
-cd server && npm test
+cd server && .venv/bin/pytest
 ```
 
 ## Deploy (VPS con Docker)

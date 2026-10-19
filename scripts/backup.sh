@@ -4,9 +4,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p backups
-docker compose exec -T app node -e "
-const D=require('better-sqlite3');
-new D('/data/paintball.db').backup('/data/backup.tmp').then(()=>process.exit(0));
+docker compose exec -T app python -c "
+import sqlite3
+src = sqlite3.connect('/data/paintball.db')
+dst = sqlite3.connect('/data/backup.tmp')
+src.backup(dst)
+dst.close()
 "
 mv data/backup.tmp "backups/paintball-$(date +%F).db"
 find backups -name 'paintball-*.db' -mtime +14 -delete

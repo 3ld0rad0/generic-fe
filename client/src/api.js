@@ -8,16 +8,24 @@ export async function api(path, { method = 'GET', body, admin = false } = {}) {
   const headers = {}
   if (body) headers['Content-Type'] = 'application/json'
   if (admin) headers.Authorization = `Bearer ${getToken()}`
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  let res
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+    })
+  } catch {
+    throw new Error('Impossibile contattare il server')
+  }
   if (res.status === 204) return null
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     if (admin && res.status === 401) setToken(null)
-    throw new Error(data.error || 'Errore di rete')
+    const err = new Error(data.error || 'Errore di rete')
+    err.status = res.status
+    throw err
   }
   return data
 }
@@ -31,3 +39,10 @@ export const formatDate = (iso) =>
     day: 'numeric',
     month: 'long',
   })
+
+export const formatShortDate = (iso) => iso.split('-').reverse().join('/')
+
+export const toISO = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+export const todayISO = () => toISO(new Date())
