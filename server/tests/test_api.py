@@ -37,6 +37,24 @@ def test_validation_and_duplicate_slots(api):
     assert api.post("/api/bookings", json={"slotId": 1, "players": 0, **PERSON}).status_code == 400
 
 
+def test_bulk_creates_slots_for_many_dates_and_skips_existing(api):
+    bulk = {k: v for k, v in SLOT.items() if k != "date"}
+    api.post("/api/admin/slots", json=SLOT, headers=api.admin)
+    r = api.post("/api/admin/slots/bulk", json={**bulk, "dates": ["2099-01-01", "2099-01-02", "2099-01-03", "2099-01-03"]}, headers=api.admin)
+    assert r.status_code == 201
+    assert r.json() == {"created": 2, "skipped": 1}
+    assert [s["date"] for s in api.get("/api/slots").json()] == ["2099-01-01", "2099-01-02", "2099-01-03"]
+
+
+def test_bulk_validation_and_auth(api):
+    bulk = {k: v for k, v in SLOT.items() if k != "date"}
+    assert api.post("/api/admin/slots/bulk", json={**bulk, "dates": ["2099-01-01"]}).status_code == 401
+    for dates in ([], "2099-01-01", ["nope"], ["2099-01-01", 5]):
+        assert api.post("/api/admin/slots/bulk", json={**bulk, "dates": dates}, headers=api.admin).status_code == 400
+    assert api.post("/api/admin/slots/bulk", json={**bulk, "time": "25:00", "dates": ["2099-01-01"]}, headers=api.admin).status_code == 400
+    assert api.get("/api/slots").json() == []
+
+
 def test_admin_can_delete_booking(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
     b = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON}).json()

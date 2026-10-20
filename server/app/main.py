@@ -22,6 +22,7 @@ TIME_RE = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
 EMAIL_RE = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 
 MAX_BODY_BYTES = 10 * 1024
+MAX_BULK_DATES = 366
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_S = 5 * 60
 
@@ -46,6 +47,23 @@ def _today():
 
 def _bad(msg):
     return HTTPException(400, msg)
+
+
+def _slot_fields(b):
+    activity, time_, capacity, price = b.get("activity"), b.get("time"), b.get("capacity"), b.get("priceCents")
+    if activity not in ACTIVITIES:
+        raise _bad("Attività non valida")
+    if not _is_str(time_) or not TIME_RE.fullmatch(time_):
+        raise _bad("Ora non valida")
+    if not _is_pos_int(capacity) or capacity > 500:
+        raise _bad("Capienza non valida")
+    if type(price) is not int or price < 0:
+        raise _bad("Prezzo non valido")
+    return activity, time_, capacity, price
+
+
+def _valid_date(date):
+    return _is_str(date) and DATE_RE.fullmatch(date)
 
 
 def create_app(db, admin_password, secret, static_dir=None):
@@ -169,19 +187,10 @@ def create_app(db, admin_password, secret, static_dir=None):
     @app.post("/api/admin/slots", status_code=201, dependencies=[Depends(auth.require_admin)])
     def create_slot(body: dict[str, Any] | None = Body(default=None)):
         b = body or {}
-        activity, date, time_, capacity, price = (
-            b.get("activity"), b.get("date"), b.get("time"), b.get("capacity"), b.get("priceCents"),
-        )
-        if activity not in ACTIVITIES:
-            raise _bad("Attività non valida")
-        if not _is_str(date) or not DATE_RE.fullmatch(date):
+        date = b.get("date")
+        if not _valid_date(date):
             raise _bad("Data non valida")
-        if not _is_str(time_) or not TIME_RE.fullmatch(time_):
-            raise _bad("Ora non valida")
-        if not _is_pos_int(capacity) or capacity > 500:
-            raise _bad("Capienza non valida")
-        if type(price) is not int or price < 0:
-            raise _bad("Prezzo non valido")
+        activity, time_, capacity, price = _slot_fields(b)
         try:
             with tx():
                 cur = db.execute(
@@ -191,6 +200,25 @@ def create_app(db, admin_password, secret, static_dir=None):
         except sqlite3.IntegrityError:
             raise HTTPException(409, "Sessione già esistente")
         return {"id": cur.lastrowid}
+
+    @app.post("/api/admin/slots/bulk", status_code=201, dependencies=[Depends(auth.require_admin)])
+    def create_slots_bulk(body: dict[str, Any] | None = Body(default=None)):
+        b = body or {}
+        dates = b.get("dates")
+        if not isinstance(dates, list) or not 0 < len(dates) <= MAX_BULK_DATES:
+            raise _bad(f"Indica da 1 a {MAX_BULK_DATES} date")
+        if not all(_valid_date(d) for d in dates):
+            raise _bad("Data non valida")
+        activity, time_, capacity, price = _slot_fields(b)
+        created = 0
+        with tx():
+            for date in sorted(set(dates)):
+                cur = db.execute(
+                    "INSERT OR IGNORE INTO slots (activity, date, time, capacity, price_cents) VALUES (?, ?, ?, ?, ?)",
+                    (activity, date, time_, capacity, price),
+                )
+                created += cur.rowcount
+        return {"created": created, "skipped": len(set(dates)) - created}
 
     @app.delete("/api/admin/slots/{slot_id}", status_code=204, dependencies=[Depends(auth.require_admin)])
     def delete_slot(slot_id: int):

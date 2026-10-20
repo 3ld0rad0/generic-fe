@@ -1,10 +1,38 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ACTIVITIES, activityBySlug, api, euro, formatShortDate, getToken, setToken, todayISO } from '../api.js'
+import { ACTIVITIES, activityBySlug, api, euro, formatShortDate, getToken, setToken, toISO, todayISO } from '../api.js'
 import { Button, Field, Icon, ThemeToggle } from '../ui.jsx'
 
-const EMPTY_SESSION = { activity: ACTIVITIES[0].slug, date: '', time: '', capacity: '16', price: '25' }
+const WEEKDAYS = [
+  ['Lun', 1],
+  ['Mar', 2],
+  ['Mer', 3],
+  ['Gio', 4],
+  ['Ven', 5],
+  ['Sab', 6],
+  ['Dom', 0],
+]
+const MAX_DATES = 366
+const EMPTY_SESSION = {
+  activity: ACTIVITIES[0].slug,
+  date: '',
+  endDate: '',
+  days: WEEKDAYS.map(([, d]) => d),
+  time: '',
+  capacity: '16',
+  price: '25',
+}
 const activityName = (slug) => activityBySlug(slug)?.name ?? slug
+
+function expandDates(start, end, days) {
+  if (!end) return [start]
+  const dates = []
+  const d = new Date(`${start}T00:00:00`)
+  for (; toISO(d) <= end && dates.length <= MAX_DATES; d.setDate(d.getDate() + 1)) {
+    if (days.includes(d.getDay())) dates.push(toISO(d))
+  }
+  return dates
+}
 
 function Login({ onLogin }) {
   const [password, setPassword] = useState('')
@@ -64,6 +92,7 @@ function Dashboard({ onLogout }) {
   const [bookings, setBookings] = useState(null)
   const [slots, setSlots] = useState(null)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [activityFilter, setActivityFilter] = useState('')
   const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
@@ -110,18 +139,30 @@ function Dashboard({ onLogout }) {
 
   const addSession = async (e) => {
     e.preventDefault()
-    const { activity, date, time, capacity, price } = sessionForm
+    const { activity, date, endDate, days, time, capacity, price } = sessionForm
     if (!date || !time) return setError('Inserisci data e ora della sessione')
+    if (endDate && endDate < date) return setError('La data di fine precede quella di inizio')
+    const dates = expandDates(date, endDate, days)
+    if (!dates.length) return setError('Nessun giorno selezionato nel periodo')
+    if (dates.length > MAX_DATES) return setError(`Massimo ${MAX_DATES} sessioni alla volta`)
     setSaving(true)
-    const ok = await run(() =>
-      api('/admin/slots', {
+    setNotice('')
+    let result
+    const ok = await run(async () => {
+      result = await api('/admin/slots/bulk', {
         method: 'POST',
         admin: true,
-        body: { activity, date, time, capacity: Number(capacity), priceCents: Math.round(Number(price) * 100) },
-      }),
-    )
+        body: { activity, dates, time, capacity: Number(capacity), priceCents: Math.round(Number(price) * 100) },
+      })
+    })
     setSaving(false)
-    if (ok) setSessionForm({ ...sessionForm, date: '', time: '' })
+    if (!ok) return
+    const { created, skipped } = result
+    setNotice(
+      `${created} ${created === 1 ? 'sessione creata' : 'sessioni create'}` +
+        (skipped ? `, ${skipped} già ${skipped === 1 ? 'esistente' : 'esistenti'}` : ''),
+    )
+    setSessionForm({ ...sessionForm, date: '', endDate: '', time: '' })
   }
 
   const remove = (path, message) => {
@@ -129,6 +170,11 @@ function Dashboard({ onLogout }) {
   }
 
   const setField = (key) => (e) => setSessionForm({ ...sessionForm, [key]: e.target.value })
+  const toggleDay = (day) =>
+    setSessionForm({
+      ...sessionForm,
+      days: sessionForm.days.includes(day) ? sessionForm.days.filter((d) => d !== day) : [...sessionForm.days, day],
+    })
 
   const loading = bookings === null || slots === null
   const q = query.trim().toLowerCase()
@@ -185,6 +231,11 @@ function Dashboard({ onLogout }) {
         {error && (
           <p className="alert" role="alert">
             {error}
+          </p>
+        )}
+        {notice && (
+          <p className="notice" role="status">
+            {notice}
           </p>
         )}
         <div className="dashboard-stats">
@@ -325,7 +376,7 @@ function Dashboard({ onLogout }) {
             <form className="session-form admin-panel" onSubmit={addSession}>
               <div>
                 <h2>Aggiungi sessione</h2>
-                <p>Crea un nuovo turno prenotabile.</p>
+                <p>Crea uno o più turni con stesso orario, capienza e prezzo.</p>
               </div>
               <label className="field">
                 <span>Attività</span>
@@ -338,6 +389,28 @@ function Dashboard({ onLogout }) {
                 </select>
               </label>
               <Field label="Data" type="date" required min={today} value={sessionForm.date} onChange={setField('date')} />
+              <Field
+                label="Fino al (opzionale)"
+                type="date"
+                min={sessionForm.date || today}
+                value={sessionForm.endDate}
+                onChange={setField('endDate')}
+              />
+              {sessionForm.endDate && (
+                <div className="weekday-picker" role="group" aria-label="Giorni della settimana">
+                  {WEEKDAYS.map(([label, day]) => (
+                    <button
+                      type="button"
+                      key={day}
+                      className={sessionForm.days.includes(day) ? 'selected' : ''}
+                      aria-pressed={sessionForm.days.includes(day)}
+                      onClick={() => toggleDay(day)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <Field label="Ora" type="time" required value={sessionForm.time} onChange={setField('time')} />
               <div className="two-fields">
                 <Field
@@ -360,7 +433,7 @@ function Dashboard({ onLogout }) {
                 />
               </div>
               <Button type="submit" icon="plus" disabled={saving}>
-                Aggiungi turno
+                Aggiungi turni
               </Button>
             </form>
             <div className="admin-panel session-list">
