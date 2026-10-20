@@ -1,6 +1,6 @@
-# Paintball Arena
+# Cardinali Poligono
 
-Sito di gestione per un campo da paintball: vetrina, prenotazione sessioni con disponibilità e area gestore.
+Sito di gestione per il poligono: vetrina, prenotazione sessioni (paintball, tiro con l'arco, carabina) con disponibilità e area gestore.
 
 - `client/` — React + Vite
 - `server/` — Python + FastAPI + SQLite (sqlite3)

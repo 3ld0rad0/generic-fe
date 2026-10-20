@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app.db import open_db
 from app.main import create_app
 
-SLOT = {"date": "2099-01-01", "time": "10:00", "capacity": 5, "priceCents": 2500}
+SLOT = {"activity": "paintball", "date": "2099-01-01", "time": "10:00", "capacity": 5, "priceCents": 2500}
 PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456"}
 
 
@@ -42,3 +42,45 @@ def test_admin_can_delete_booking(api):
     b = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON}).json()
     assert api.delete(f"/api/admin/bookings/{b['id']}", headers=api.admin).status_code == 204
     assert api.get("/api/admin/bookings", headers=api.admin).json() == []
+
+
+def test_activities_share_time_and_can_be_filtered(api):
+    for activity in ("paintball", "arco", "carabina"):
+        assert api.post("/api/admin/slots", json={**SLOT, "activity": activity}, headers=api.admin).status_code == 201
+    assert len(api.get("/api/slots").json()) == 3
+    arco = api.get("/api/slots?activity=arco").json()
+    assert [s["activity"] for s in arco] == ["arco"]
+    assert api.get("/api/slots?activity=golf").status_code == 400
+
+
+def test_invalid_activity_is_rejected(api):
+    assert api.post("/api/admin/slots", json={**SLOT, "activity": "golf"}, headers=api.admin).status_code == 400
+    assert api.post("/api/admin/slots", json={k: v for k, v in SLOT.items() if k != "activity"}, headers=api.admin).status_code == 400
+
+
+def test_booking_on_activity_slot_reports_activity_to_admin(api):
+    s = api.post("/api/admin/slots", json={**SLOT, "activity": "carabina"}, headers=api.admin).json()
+    api.post("/api/bookings", json={"slotId": s["id"], "players": 2, **PERSON})
+    assert api.get("/api/admin/bookings", headers=api.admin).json()[0]["activity"] == "carabina"
+
+
+def test_legacy_db_is_migrated_keeping_bookings(tmp_path):
+    import sqlite3
+
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(
+        """
+        CREATE TABLE slots (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, time TEXT NOT NULL,
+          capacity INTEGER NOT NULL, price_cents INTEGER NOT NULL, UNIQUE (date, time));
+        CREATE TABLE bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, slot_id INTEGER NOT NULL REFERENCES slots(id) ON DELETE CASCADE,
+          name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, players INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')));
+        INSERT INTO slots (date, time, capacity, price_cents) VALUES ('2099-01-01', '10:00', 5, 2500);
+        INSERT INTO bookings (slot_id, name, email, phone, players) VALUES (1, 'M', 'm@x.it', '123456', 2);
+        """
+    )
+    old.close()
+    db = open_db(path)
+    assert db.execute("SELECT activity FROM slots").fetchone()[0] == "paintball"
+    assert db.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 1

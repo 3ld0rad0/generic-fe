@@ -1,35 +1,33 @@
 import { Link } from 'react-router-dom'
+import { ACTIVITIES } from '../api.js'
 import { ButtonLink, Icon, SectionTitle } from '../ui.jsx'
 
 const images = {
   hero: 'https://images.unsplash.com/photo-1557543237-519b4f6d3373?auto=format&fit=crop&w=2000&q=88',
-  field: 'https://images.unsplash.com/photo-1614602371808-d408f4464758?auto=format&fit=crop&w=1200&q=85',
-  player: 'https://images.unsplash.com/photo-1588432815128-363254491e4e?auto=format&fit=crop&w=1000&q=85',
-  action: 'https://images.unsplash.com/photo-1550024733-e72f7e3ca906?auto=format&fit=crop&w=1200&q=85',
   team: 'https://images.unsplash.com/photo-1569512850497-bd83aa6a2425?auto=format&fit=crop&w=1400&q=85',
 }
 
 const features = [
   {
-    icon: 'target',
-    title: '3 campi da gioco',
-    copy: 'Scenari outdoor diversi, ostacoli tattici e aree sempre rinnovate.',
-  },
-  {
     icon: 'gear',
-    title: 'Tutto incluso',
-    copy: 'Marcatore, maschera, protezioni e 300 paintball pronti per te.',
+    title: 'Attrezzatura inclusa',
+    copy: 'Tutto il necessario per ogni attività, controllato e pronto all’uso.',
   },
   {
     icon: 'shield',
     title: 'Sicurezza prima',
     copy: 'Briefing e assistenza continua da parte dei nostri istruttori.',
   },
+  {
+    icon: 'users',
+    title: 'Per tutti',
+    copy: 'Singoli, gruppi di amici, team aziendali e feste speciali.',
+  },
 ]
 
 const steps = [
-  ['calendar', '01', 'Scegli la data', 'Trova il giorno perfetto per tutta la squadra.'],
-  ['clock', '02', 'Scegli l’orario', 'Controlla i posti disponibili in tempo reale.'],
+  ['target', '01', 'Scegli l’attività', 'Paintball, tiro con l’arco o carabina: scegli la tua sfida.'],
+  ['calendar', '02', 'Scegli data e orario', 'Controlla i posti disponibili in tempo reale.'],
   ['check', '03', 'Conferma', 'Inserisci i tuoi dati. Al resto pensiamo noi.'],
 ]
 
@@ -39,31 +37,45 @@ export default function Home() {
       <section className="hero" style={{ backgroundImage: `url(${images.hero})` }}>
         <div className="hero-noise" />
         <div className="hero-content">
-          <span className="hero-kicker">Milano · Outdoor arena</span>
+          <span className="hero-kicker">Milano · Poligono e outdoor</span>
           <h1>
-            Vivi l'azione.
+            Scegli la tua sfida.
             <br />
-            <em>Prenota il tuo campo.</em>
+            <em>Prenota la tua sessione.</em>
           </h1>
-          <p>Raduna la squadra, scegli il tuo scenario e preparati a una sfida che non dimenticherai.</p>
+          <p>Paintball, tiro con l'arco e carabina: precisione, adrenalina e divertimento in un unico posto.</p>
           <ButtonLink to="/prenota" icon="arrow">
             Prenota ora
           </ButtonLink>
         </div>
-        <Link className="scroll-cue" to={{ hash: '#campo' }}>
+        <Link className="scroll-cue" to={{ hash: '#attivita' }}>
           <span>Scorri</span>
           <span className="scroll-line" />
           <Icon name="chevron" size={18} />
         </Link>
       </section>
 
-      <section className="panel field-section" id="campo">
+      <section className="panel field-section" id="attivita">
         <div className="section-inner">
           <SectionTitle
-            eyebrow="01 · Il campo"
-            title="Il terreno è tuo."
-            copy="Oltre 20.000 m² di natura e adrenalina. Ogni partita è diversa, ogni strategia può fare la differenza."
+            eyebrow="01 · Le attività"
+            title="Scegli come metterti alla prova."
+            copy="Tre discipline, un unico poligono. Prenota quella che preferisci in pochi click."
           />
+          <div className="feature-grid">
+            {ACTIVITIES.map((activity) => (
+              <Link className="feature-card activity-card" key={activity.slug} to={`/prenota?activity=${activity.slug}`}>
+                <span className="feature-icon">
+                  <Icon name={activity.icon} size={28} />
+                </span>
+                <h3>{activity.name}</h3>
+                <p>{activity.copy}</p>
+                <span className="activity-cta">
+                  Prenota <Icon name="arrow" size={16} />
+                </span>
+              </Link>
+            ))}
+          </div>
           <div className="feature-grid">
             {features.map((feature) => (
               <article className="feature-card" key={feature.title}>
@@ -75,32 +87,18 @@ export default function Home() {
               </article>
             ))}
           </div>
-          <div className="gallery">
-            <figure className="gallery-large">
-              <img src={images.field} alt="Campo da paintball outdoor con ostacoli gonfiabili" />
-              <figcaption>Scenario Speedball</figcaption>
-            </figure>
-            <figure>
-              <img src={images.player} alt="Giocatore equipaggiato nel bosco" />
-              <figcaption>Scenario Woodland</figcaption>
-            </figure>
-            <figure>
-              <img src={images.action} alt="Giocatore durante una partita" />
-              <figcaption>Zona tattica</figcaption>
-            </figure>
-          </div>
         </div>
       </section>
 
       <section className="panel story-section" id="societa">
         <div className="section-inner story-grid">
           <div className="story-copy">
-            <SectionTitle eyebrow="02 · La società" title="Una passione diventata arena." />
+            <SectionTitle eyebrow="02 · La società" title="Una passione diventata poligono." />
             <p>
-              Siamo giocatori prima ancora che organizzatori. Dal 2012 creiamo esperienze sicure, coinvolgenti e
+              Siamo appassionati prima ancora che organizzatori. Dal 2012 creiamo esperienze sicure, coinvolgenti e
               accessibili a tutti: gruppi di amici, team aziendali e feste speciali.
             </p>
-            <p>Il nostro staff ti accompagna dal primo briefing all'ultimo colpo. Tu pensa solo alla strategia.</p>
+            <p>Il nostro staff ti accompagna dal primo briefing all'ultimo colpo. Tu pensa solo a divertirti.</p>
             <div className="stats">
               <div>
                 <strong>12</strong>
@@ -108,16 +106,16 @@ export default function Home() {
               </div>
               <div>
                 <strong>24k</strong>
-                <span>giocatori</span>
+                <span>partecipanti</span>
               </div>
               <div>
                 <strong>3.8k</strong>
-                <span>partite</span>
+                <span>sessioni</span>
               </div>
             </div>
           </div>
           <div className="story-image">
-            <img src={images.team} alt="Squadra di giocatori sul campo" />
+            <img src={images.team} alt="Il team di Cardinali Poligono" />
             <span>
               La nostra squadra,
               <br />
@@ -131,8 +129,8 @@ export default function Home() {
         <div className="section-inner">
           <SectionTitle
             eyebrow="03 · Come funziona"
-            title="Dalla scelta al campo."
-            copy="Prenotare è facile. In tre passaggi sei pronto a giocare."
+            title="Dalla scelta al poligono."
+            copy="Prenotare è facile. In tre passaggi sei pronto a partire."
           />
           <div className="steps">
             {steps.map(([icon, number, title, copy]) => (
@@ -159,7 +157,7 @@ export default function Home() {
           <div>
             <SectionTitle
               eyebrow="04 · Contatti"
-              title="Ci vediamo sul campo."
+              title="Ci vediamo al poligono."
               copy="Hai dubbi, richieste speciali o un gruppo numeroso? Parliamone."
             />
             <div className="contact-list">
@@ -175,10 +173,10 @@ export default function Home() {
                   <small>Chiamaci</small>+39 02 1234 5678
                 </span>
               </a>
-              <a href="mailto:ciao@paintballarena.it">
+              <a href="mailto:info@cardinalipoligono.it">
                 <Icon name="mail" />
                 <span>
-                  <small>Scrivici</small>ciao@paintballarena.it
+                  <small>Scrivici</small>info@cardinalipoligono.it
                 </span>
               </a>
               <div>
@@ -197,7 +195,7 @@ export default function Home() {
               <Icon name="target" size={30} />
             </div>
             <div className="map-card">
-              <strong>Paintball Arena</strong>
+              <strong>Cardinali Poligono</strong>
               <span>Via del Bosco 24, Milano</span>
               <a href="https://maps.google.com" target="_blank" rel="noreferrer">
                 Apri in Google Maps <Icon name="arrow" size={16} />

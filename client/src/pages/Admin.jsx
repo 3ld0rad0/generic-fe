@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, euro, formatShortDate, getToken, setToken, todayISO } from '../api.js'
-import { Button, Field, Icon } from '../ui.jsx'
+import { ACTIVITIES, activityBySlug, api, euro, formatShortDate, getToken, setToken, todayISO } from '../api.js'
+import { Button, Field, Icon, ThemeToggle } from '../ui.jsx'
 
-const EMPTY_SESSION = { date: '', time: '', capacity: '16', price: '25' }
+const EMPTY_SESSION = { activity: ACTIVITIES[0].slug, date: '', time: '', capacity: '16', price: '25' }
+const activityName = (slug) => activityBySlug(slug)?.name ?? slug
 
 function Login({ onLogin }) {
   const [password, setPassword] = useState('')
@@ -29,6 +30,7 @@ function Login({ onLogin }) {
       <Link className="back-home" to="/">
         ← Torna al sito
       </Link>
+      <ThemeToggle className="floating" />
       <form onSubmit={submit} className="login-card" noValidate>
         <span className="manager-mark">
           <Icon name="gear" size={30} />
@@ -51,7 +53,7 @@ function Login({ onLogin }) {
         <Button type="submit" icon="arrow" disabled={submitting}>
           {submitting ? 'Accesso...' : 'Accedi'}
         </Button>
-        <small>Accesso riservato allo staff di Paintball Arena</small>
+        <small>Accesso riservato allo staff di Cardinali Poligono</small>
       </form>
     </main>
   )
@@ -63,6 +65,7 @@ function Dashboard({ onLogout }) {
   const [slots, setSlots] = useState(null)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
+  const [activityFilter, setActivityFilter] = useState('')
   const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
   const [saving, setSaving] = useState(false)
   const [today] = useState(todayISO)
@@ -107,14 +110,14 @@ function Dashboard({ onLogout }) {
 
   const addSession = async (e) => {
     e.preventDefault()
-    const { date, time, capacity, price } = sessionForm
+    const { activity, date, time, capacity, price } = sessionForm
     if (!date || !time) return setError('Inserisci data e ora della sessione')
     setSaving(true)
     const ok = await run(() =>
       api('/admin/slots', {
         method: 'POST',
         admin: true,
-        body: { date, time, capacity: Number(capacity), priceCents: Math.round(Number(price) * 100) },
+        body: { activity, date, time, capacity: Number(capacity), priceCents: Math.round(Number(price) * 100) },
       }),
     )
     setSaving(false)
@@ -130,8 +133,11 @@ function Dashboard({ onLogout }) {
   const loading = bookings === null || slots === null
   const q = query.trim().toLowerCase()
   const visibleBookings = (bookings ?? []).filter(
-    (b) => !q || b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q),
+    (b) =>
+      (!activityFilter || b.activity === activityFilter) &&
+      (!q || b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q)),
   )
+  const visibleSlots = (slots ?? []).filter((s) => !activityFilter || s.activity === activityFilter)
   const upcoming = (bookings ?? []).filter((b) => b.date >= today)
 
   return (
@@ -143,20 +149,23 @@ function Dashboard({ onLogout }) {
           </span>
           <div>
             <strong>
-              PAINTBALL <b>ARENA</b>
+              CARDINALI <b>POLIGONO</b>
             </strong>
             <small>Area gestore</small>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setToken(null)
-            onLogout()
-          }}
-        >
-          Esci
-        </Button>
+        <div className="head-actions">
+          <ThemeToggle />
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setToken(null)
+              onLogout()
+            }}
+          >
+            Esci
+          </Button>
+        </div>
       </header>
       <div className="dashboard-shell">
         <div className="dashboard-title">
@@ -184,13 +193,27 @@ function Dashboard({ onLogout }) {
             <strong>{loading ? '–' : bookings.filter((b) => b.date === today).length}</strong>
           </div>
           <div>
-            <span>Giocatori attesi</span>
+            <span>Partecipanti attesi</span>
             <strong>{loading ? '–' : upcoming.reduce((sum, b) => sum + b.players, 0)}</strong>
           </div>
           <div>
             <span>Sessioni attive</span>
             <strong>{loading ? '–' : slots.filter((s) => s.date >= today).length}</strong>
           </div>
+        </div>
+        <div className="activity-picker filter" role="group" aria-label="Filtra per attività">
+          {[{ slug: '', name: 'Tutte', icon: 'calendar' }, ...ACTIVITIES].map((a) => (
+            <button
+              type="button"
+              key={a.slug}
+              className={a.slug === activityFilter ? 'selected' : ''}
+              aria-pressed={a.slug === activityFilter}
+              onClick={() => setActivityFilter(a.slug)}
+            >
+              <Icon name={a.icon} size={20} />
+              {a.name}
+            </button>
+          ))}
         </div>
         <div className="tabs" role="tablist">
           <button
@@ -248,10 +271,11 @@ function Dashboard({ onLogout }) {
                     <tr>
                       <th>Data</th>
                       <th>Ora</th>
+                      <th>Attività</th>
                       <th>Nome</th>
                       <th>Email</th>
                       <th>Telefono</th>
-                      <th>Giocatori</th>
+                      <th>Partecipanti</th>
                       <th>
                         <span className="sr-only">Azioni</span>
                       </th>
@@ -264,6 +288,9 @@ function Dashboard({ onLogout }) {
                           <strong>{formatShortDate(booking.date)}</strong>
                         </td>
                         <td>{booking.time}</td>
+                        <td>
+                          <span className="activity-badge">{activityName(booking.activity)}</span>
+                        </td>
                         <td>{booking.name}</td>
                         <td>{booking.email}</td>
                         <td>{booking.phone}</td>
@@ -300,6 +327,16 @@ function Dashboard({ onLogout }) {
                 <h2>Aggiungi sessione</h2>
                 <p>Crea un nuovo turno prenotabile.</p>
               </div>
+              <label className="field">
+                <span>Attività</span>
+                <select value={sessionForm.activity} onChange={setField('activity')}>
+                  {ACTIVITIES.map((a) => (
+                    <option key={a.slug} value={a.slug}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <Field label="Data" type="date" required min={today} value={sessionForm.date} onChange={setField('date')} />
               <Field label="Ora" type="time" required value={sessionForm.time} onChange={setField('time')} />
               <div className="two-fields">
@@ -336,20 +373,22 @@ function Dashboard({ onLogout }) {
                   <span className="spinner" />
                   <h4>Caricamento...</h4>
                 </div>
-              ) : slots.length === 0 ? (
+              ) : visibleSlots.length === 0 ? (
                 <div className="admin-empty">
                   <Icon name="calendar" size={34} />
                   <h3>Nessuna sessione</h3>
                   <p>Crea il primo turno con il modulo qui accanto.</p>
                 </div>
               ) : (
-                slots.map((session) => (
+                visibleSlots.map((session) => (
                   <article key={session.id}>
                     <div className="session-date">
                       <Icon name="calendar" />
                       <span>
                         <strong>{formatShortDate(session.date)}</strong>
-                        <small>{session.time}</small>
+                        <small>
+                          {session.time} · {activityName(session.activity)}
+                        </small>
                       </span>
                     </div>
                     <div>
@@ -365,7 +404,7 @@ function Dashboard({ onLogout }) {
                     <button
                       type="button"
                       className="delete"
-                      aria-label={`Elimina sessione del ${formatShortDate(session.date)} alle ${session.time}`}
+                      aria-label={`Elimina sessione ${activityName(session.activity)} del ${formatShortDate(session.date)} alle ${session.time}`}
                       onClick={() =>
                         remove(
                           `/admin/slots/${session.id}`,

@@ -30,6 +30,29 @@ export async function api(path, { method = 'GET', body, admin = false } = {}) {
   return data
 }
 
+export const ACTIVITIES = [
+  {
+    slug: 'paintball',
+    name: 'Paintball',
+    icon: 'target',
+    copy: 'Campi outdoor con ostacoli tattici. Marcatore, maschera e protezioni inclusi.',
+  },
+  {
+    slug: 'arco',
+    name: 'Tiro con l’arco',
+    icon: 'bow',
+    copy: 'Linee di tiro con bersagli a diverse distanze, con istruttore e attrezzatura.',
+  },
+  {
+    slug: 'carabina',
+    name: 'Carabina',
+    icon: 'rifle',
+    copy: 'Tiro a segno con carabina in poligono attrezzato, sotto la guida dei nostri istruttori.',
+  },
+]
+
+export const activityBySlug = (slug) => ACTIVITIES.find((a) => a.slug === slug)
+
 export const euro = (cents) =>
   new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 

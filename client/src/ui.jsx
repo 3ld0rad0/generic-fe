@@ -8,6 +8,13 @@ const paths = {
       <path d="m13 6 6 6-6 6" />
     </>
   ),
+  bow: (
+    <>
+      <path d="M7 3c7 3 7 15 0 18" />
+      <path d="M7 3v18M7 12h14" />
+      <path d="m17 9 4 3-4 3" />
+    </>
+  ),
   calendar: (
     <>
       <rect x="3" y="5" width="18" height="16" rx="2" />
@@ -51,14 +58,22 @@ const paths = {
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   minus: <path d="M5 12h14" />,
+  moon: <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" />,
   phone: (
     <path d="M7 3h3l1.5 5-2 1.5a14 14 0 0 0 5 5l1.5-2L21 14v3c0 2.2-1.8 4-4 4C9.3 21 3 14.7 3 7c0-2.2 1.8-4 4-4Z" />
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  rifle: <path d="M2 11h13l2-2h5v3h-5l-1 2h-4l-1 4H8l1-4H2Z" />,
   shield: (
     <>
       <path d="M12 3 4 6v5c0 5.3 3.4 8.4 8 10 4.6-1.6 8-4.7 8-10V6Z" />
       <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
     </>
   ),
   target: (
@@ -98,14 +113,36 @@ export function Icon({ name, size = 24 }) {
 
 export function Logo() {
   return (
-    <Link className="logo" to="/" aria-label="Paintball Arena, home">
+    <Link className="logo" to="/" aria-label="Cardinali Poligono, home">
       <span className="logo-mark">
         <Icon name="target" size={26} />
       </span>
       <span>
-        PAINTBALL <b>ARENA</b>
+        CARDINALI <b>POLIGONO</b>
       </span>
     </Link>
+  )
+}
+
+export function ThemeToggle({ className = '' }) {
+  const [theme, setTheme] = useState(() => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'))
+  const toggle = () => {
+    const next = theme === 'light' ? 'dark' : 'light'
+    document.documentElement.dataset.theme = next
+    try {
+      localStorage.setItem('theme', next)
+    } catch {}
+    setTheme(next)
+  }
+  return (
+    <button
+      type="button"
+      className={`theme-toggle ${className}`}
+      aria-label={theme === 'light' ? 'Attiva tema scuro' : 'Attiva tema chiaro'}
+      onClick={toggle}
+    >
+      <Icon name={theme === 'light' ? 'moon' : 'sun'} size={20} />
+    </button>
   )
 }
 
@@ -160,12 +197,13 @@ function Navbar() {
         aria-label="Navigazione principale"
         onClick={() => setOpen(false)}
       >
-        <Link to={homeAnchor('campo')}>Il campo</Link>
+        <Link to={homeAnchor('attivita')}>Le attività</Link>
         <Link to={homeAnchor('societa')}>Chi siamo</Link>
         <Link to={homeAnchor('contatti')}>Contatti</Link>
         <ButtonLink to="/prenota" icon="arrow">
           Prenota
         </ButtonLink>
+        <ThemeToggle />
       </nav>
       <button
         className="menu-button"
@@ -187,20 +225,20 @@ export function Footer() {
         <div>
           <Logo />
           <p>
-            Adrenalina, strategia e divertimento
+            Sicurezza, precisione e divertimento
             <br />a pochi minuti dalla città.
           </p>
         </div>
         <div>
           <h3>Esplora</h3>
-          <Link to={homeAnchor('campo')}>Il campo</Link>
+          <Link to={homeAnchor('attivita')}>Le attività</Link>
           <Link to={homeAnchor('societa')}>Chi siamo</Link>
           <Link to="/prenota">Prenota</Link>
         </div>
         <div>
           <h3>Contatti</h3>
           <a href="tel:+390212345678">+39 02 1234 5678</a>
-          <a href="mailto:ciao@paintballarena.it">ciao@paintballarena.it</a>
+          <a href="mailto:info@cardinalipoligono.it">info@cardinalipoligono.it</a>
           <span>Via del Bosco 24, Milano</span>
         </div>
         <div>
@@ -216,7 +254,7 @@ export function Footer() {
         </div>
       </div>
       <div className="footer-bottom">
-        <span>© {YEAR} Paintball Arena</span>
+        <span>© {YEAR} Cardinali Poligono</span>
         <span>Privacy · Cookie · Termini</span>
         <Link to="/admin">Area gestore</Link>
       </div>

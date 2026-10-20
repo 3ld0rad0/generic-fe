@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, euro, formatDate, toISO, todayISO } from '../api.js'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { ACTIVITIES, activityBySlug, api, euro, formatDate, toISO, todayISO } from '../api.js'
 import { Button, ButtonLink, Field, Icon } from '../ui.jsx'
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
@@ -123,7 +124,7 @@ function Summary({ slot, players }) {
   return (
     <aside className="summary-card">
       <span className="eyebrow">Il tuo riepilogo</span>
-      <h3>Paintball Experience</h3>
+      <h3>{activityBySlug(slot.activity)?.name ?? slot.activity}</h3>
       <div>
         <span>
           <Icon name="calendar" size={19} /> Data
@@ -138,7 +139,7 @@ function Summary({ slot, players }) {
       </div>
       <div>
         <span>
-          <Icon name="users" size={19} /> Giocatori
+          <Icon name="users" size={19} /> Partecipanti
         </span>
         <strong>{players}</strong>
       </div>
@@ -147,13 +148,16 @@ function Summary({ slot, players }) {
         <span>Totale</span>
         <strong>{euro(slot.price_cents * players)}</strong>
       </div>
-      <small>Pagamento direttamente al campo</small>
+      <small>Pagamento direttamente al poligono</small>
     </aside>
   )
 }
 
 export default function Book() {
+  const [params] = useSearchParams()
   const [today] = useState(todayISO)
+  const [activity, setActivity] = useState(() => activityBySlug(params.get('activity'))?.slug ?? ACTIVITIES[0].slug)
+  const activityRef = useRef(activity)
   const [slots, setSlots] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [step, setStep] = useState(1)
@@ -169,23 +173,36 @@ export default function Book() {
 
   const load = useCallback(
     () =>
-      api(`/slots?from=${today}`).then(
+      api(`/slots?from=${today}&activity=${activity}`).then(
         (data) => {
+          if (activityRef.current !== activity) return null
           setSlots(data)
           setLoadError('')
           return data
         },
         (e) => {
-          setLoadError(e.message)
+          if (activityRef.current === activity) setLoadError(e.message)
           return null
         },
       ),
-    [today],
+    [today, activity],
   )
 
   useEffect(() => {
     load()
   }, [load])
+
+  const chooseActivity = (slug) => {
+    if (slug === activity) return
+    activityRef.current = slug
+    setActivity(slug)
+    setSlots(null)
+    setLoadError('')
+    setPickedDate(null)
+    setPickedMonth(null)
+    setSlotId(null)
+    setSubmitError('')
+  }
 
   const byDate = useMemo(() => {
     const groups = {}
@@ -274,8 +291,8 @@ export default function Book() {
     <main className="booking-page">
       <div className="page-hero compact">
         <span className="eyebrow">Prenotazione online</span>
-        <h1>Preparati a giocare.</h1>
-        <p>Scegli quando venire, dicci chi sei. Al resto pensiamo noi.</p>
+        <h1>Prenota la tua sessione.</h1>
+        <p>Scegli l'attività e quando venire, dicci chi sei. Al resto pensiamo noi.</p>
       </div>
       <div className="booking-shell">
         <Progress current={step} />
@@ -285,9 +302,23 @@ export default function Book() {
             <div className="booking-title">
               <span>01</span>
               <div>
-                <h2>Scegli data e ora</h2>
-                <p>Seleziona il giorno e la fascia oraria che preferisci.</p>
+                <h2>Scegli attività, data e ora</h2>
+                <p>Seleziona l'attività, il giorno e la fascia oraria che preferisci.</p>
               </div>
+            </div>
+            <div className="activity-picker" role="group" aria-label="Attività">
+              {ACTIVITIES.map((a) => (
+                <button
+                  type="button"
+                  key={a.slug}
+                  className={a.slug === activity ? 'selected' : ''}
+                  aria-pressed={a.slug === activity}
+                  onClick={() => chooseActivity(a.slug)}
+                >
+                  <Icon name={a.icon} size={26} />
+                  {a.name}
+                </button>
+              ))}
             </div>
             <div className="date-time-grid">
               <Calendar
@@ -405,9 +436,9 @@ export default function Book() {
                 />
                 <div className="player-stepper">
                   <div>
-                    <label id="players-label">Numero di giocatori</label>
+                    <label id="players-label">Numero di partecipanti</label>
                     <small>
-                      Minimo 1, massimo {selectedSlot.available} {selectedSlot.available === 1 ? 'giocatore' : 'giocatori'}
+                      Minimo 1, massimo {selectedSlot.available} {selectedSlot.available === 1 ? 'partecipante' : 'partecipanti'}
                     </small>
                   </div>
                   <div role="group" aria-labelledby="players-label">
@@ -415,7 +446,7 @@ export default function Book() {
                       type="button"
                       onClick={() => setPlayers(Math.max(1, players - 1))}
                       disabled={players <= 1}
-                      aria-label="Riduci giocatori"
+                      aria-label="Riduci partecipanti"
                     >
                       <Icon name="minus" size={18} />
                     </button>
@@ -424,7 +455,7 @@ export default function Book() {
                       type="button"
                       onClick={() => setPlayers(Math.min(selectedSlot.available, players + 1))}
                       disabled={players >= selectedSlot.available}
-                      aria-label="Aumenta giocatori"
+                      aria-label="Aumenta partecipanti"
                     >
                       <Icon name="plus" size={18} />
                     </button>
@@ -455,7 +486,7 @@ export default function Book() {
               <Icon name="check" size={45} />
             </div>
             <span className="eyebrow">Prenotazione confermata</span>
-            <h2>Ci vediamo sul campo!</h2>
+            <h2>Ci vediamo al poligono!</h2>
             <p>
               Prenotazione registrata a nome di <strong>{confirmed.name}</strong>.
               <br />

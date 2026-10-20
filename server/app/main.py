@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .auth import Auth
-from .db import open_db
+from .db import ACTIVITIES, open_db
 
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 TIME_RE = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
@@ -26,7 +26,7 @@ LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_S = 5 * 60
 
 SLOT_WITH_AVAILABILITY = """
-  SELECT s.id, s.date, s.time, s.capacity, s.price_cents,
+  SELECT s.id, s.activity, s.date, s.time, s.capacity, s.price_cents,
          s.capacity - COALESCE(SUM(b.players), 0) AS available
   FROM slots s LEFT JOIN bookings b ON b.slot_id = s.id
 """
@@ -105,10 +105,14 @@ def create_app(db, admin_password, secret, static_dir=None):
         from_ = request.query_params.get("from", "")
         if not DATE_RE.fullmatch(from_):
             from_ = _today()
+        activity = request.query_params.get("activity")
+        if activity is not None and activity not in ACTIVITIES:
+            raise _bad("Attività non valida")
         with lock:
             rows = db.execute(
-                f"{SLOT_WITH_AVAILABILITY} WHERE s.date >= ? GROUP BY s.id ORDER BY s.date, s.time",
-                (from_,),
+                f"{SLOT_WITH_AVAILABILITY} WHERE s.date >= ? AND (? IS NULL OR s.activity = ?) "
+                "GROUP BY s.id ORDER BY s.date, s.time, s.activity",
+                (from_, activity, activity),
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -127,7 +131,7 @@ def create_app(db, admin_password, secret, static_dir=None):
         if not _is_str(phone) or len(phone.strip()) < 5 or len(phone) > 30:
             raise _bad("Telefono non valido")
         if not _is_pos_int(players) or players > 100:
-            raise _bad("Numero giocatori non valido")
+            raise _bad("Numero partecipanti non valido")
 
         with tx():
             slot = db.execute(f"{SLOT_WITH_AVAILABILITY} WHERE s.id = ? GROUP BY s.id", (slot_id,)).fetchone()
@@ -148,9 +152,9 @@ def create_app(db, admin_password, secret, static_dir=None):
         with lock:
             rows = db.execute(
                 """SELECT b.id, b.name, b.email, b.phone, b.players, b.created_at,
-                          s.id AS slot_id, s.date, s.time
+                          s.id AS slot_id, s.activity, s.date, s.time
                    FROM bookings b JOIN slots s ON s.id = b.slot_id
-                   ORDER BY s.date, s.time, b.id"""
+                   ORDER BY s.date, s.time, s.activity, b.id"""
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -165,7 +169,11 @@ def create_app(db, admin_password, secret, static_dir=None):
     @app.post("/api/admin/slots", status_code=201, dependencies=[Depends(auth.require_admin)])
     def create_slot(body: dict[str, Any] | None = Body(default=None)):
         b = body or {}
-        date, time_, capacity, price = b.get("date"), b.get("time"), b.get("capacity"), b.get("priceCents")
+        activity, date, time_, capacity, price = (
+            b.get("activity"), b.get("date"), b.get("time"), b.get("capacity"), b.get("priceCents"),
+        )
+        if activity not in ACTIVITIES:
+            raise _bad("Attività non valida")
         if not _is_str(date) or not DATE_RE.fullmatch(date):
             raise _bad("Data non valida")
         if not _is_str(time_) or not TIME_RE.fullmatch(time_):
@@ -177,8 +185,8 @@ def create_app(db, admin_password, secret, static_dir=None):
         try:
             with tx():
                 cur = db.execute(
-                    "INSERT INTO slots (date, time, capacity, price_cents) VALUES (?, ?, ?, ?)",
-                    (date, time_, capacity, price),
+                    "INSERT INTO slots (activity, date, time, capacity, price_cents) VALUES (?, ?, ?, ?, ?)",
+                    (activity, date, time_, capacity, price),
                 )
         except sqlite3.IntegrityError:
             raise HTTPException(409, "Sessione già esistente")
