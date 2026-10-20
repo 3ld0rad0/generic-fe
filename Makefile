@@ -2,7 +2,10 @@ ADMIN_PASSWORD ?= admin
 PORT ?= 3000
 VENV := server/.venv
 
-.PHONY: help install dev server client test lint build clean
+DAYS ?= 30
+PER_DAY ?= 4
+
+.PHONY: help install dev server client test seed lint build clean
 
 help:
 	@echo "make install  - installa dipendenze server (venv) e client"
@@ -10,6 +13,7 @@ help:
 	@echo "make server   - avvia solo l'API FastAPI con reload"
 	@echo "make client   - avvia solo il dev server Vite"
 	@echo "make test     - esegue i test del server"
+	@echo "make seed     - popola il DB con turni casuali (DAYS=$(DAYS) PER_DAY=$(PER_DAY))"
 	@echo "make lint     - lint del client"
 	@echo "make build    - build di produzione del client"
 	@echo "make clean    - rimuove venv, node_modules e dist"
@@ -37,6 +41,9 @@ client: client/node_modules/.installed
 
 test: $(VENV)/.installed
 	cd server && .venv/bin/pytest -q
+
+seed: $(VENV)/.installed
+	cd server && .venv/bin/python -m app.seed --days $(DAYS) --per-day $(PER_DAY)
 
 lint: client/node_modules/.installed
 	cd client && npm run lint
