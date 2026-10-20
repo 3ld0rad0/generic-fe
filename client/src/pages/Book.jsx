@@ -63,25 +63,28 @@ function Calendar({ month, onMonthChange, byDate, selected, onSelect, lastDate, 
           const iso = toISO(new Date(year, m, i + 1))
           const daySlots = byDate[iso]
           const hasSeats = daySlots?.some((s) => s.available > 0)
+          const status = !daySlots ? '' : hasSeats ? 'day-available' : 'day-full'
           return (
             <button
               type="button"
               key={iso}
               disabled={iso < today || !daySlots}
-              className={selected === iso ? 'selected' : ''}
+              className={`${status} ${selected === iso ? 'selected' : ''}`}
               aria-pressed={selected === iso}
-              aria-label={`${formatDate(iso)}${hasSeats ? ', posti disponibili' : ''}`}
+              aria-label={`${formatDate(iso)}${daySlots ? (hasSeats ? ', posti disponibili' : ', completo') : ''}`}
               onClick={() => onSelect(iso)}
             >
               {i + 1}
-              {hasSeats && <i />}
             </button>
           )
         })}
       </div>
       <div className="calendar-legend">
         <span>
-          <i /> Disponibilità
+          <i /> Disponibile
+        </span>
+        <span>
+          <i className="full-dot" /> Completo
         </span>
         <span>
           <i className="selected-dot" /> Selezionato
