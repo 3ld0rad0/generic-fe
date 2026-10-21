@@ -1,6 +1,9 @@
 import pytest
+from datetime import datetime
+
 from fastapi.testclient import TestClient
 
+from app import main
 from app.db import open_db
 from app.main import create_app
 
@@ -10,9 +13,11 @@ PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456"}
 
 @pytest.fixture
 def api():
-    client = TestClient(create_app(open_db(":memory:"), "pw", "s"))
+    sent = []
+    client = TestClient(create_app(open_db(":memory:"), "pw", "s", mailer=sent.append))
     token = client.post("/api/admin/login", json={"password": "pw"}).json()["token"]
     client.admin = {"authorization": f"Bearer {token}"}
+    client.sent = sent
     return client
 
 
@@ -127,3 +132,50 @@ def test_db_with_capacity_and_activity_drops_capacity_keeping_bookings(tmp_path)
     assert [r[1] for r in db.execute("PRAGMA table_info(slots)")] == ["id", "activity", "date", "time", "price_cents"]
     assert db.execute("SELECT activity FROM slots").fetchone()[0] == "arco"
     assert db.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 1
+
+
+def _at(monkeypatch, hh_mm):
+    now = datetime.fromisoformat(f"2099-01-01T{hh_mm}").replace(tzinfo=main.TZ)
+    monkeypatch.setattr(main, "_now", lambda: now)
+
+
+def test_confirmation_mail_contains_working_cancel_link(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    api.post("/api/bookings", json={"slotId": s["id"], "players": 3, **PERSON})
+    (sent,) = api.sent
+    assert sent["email"] == "m@x.it" and sent["players"] == 3
+
+    token = sent["cancel_token"]
+    info = api.get(f"/api/bookings/cancel/{token}").json()
+    assert info["cancellable"] is True and info["date"] == "2099-01-01" and "email" not in info
+    assert api.post(f"/api/bookings/cancel/{token}").status_code == 204
+    assert api.get("/api/admin/bookings", headers=api.admin).json() == []
+    assert api.post(f"/api/bookings/cancel/{token}").status_code == 404
+    assert api.get("/api/bookings/cancel/nope").status_code == 404
+
+
+def test_cancel_not_allowed_after_slot_start(api, monkeypatch):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON})
+    token = api.sent[0]["cancel_token"]
+    _at(monkeypatch, "10:00")
+    assert api.get(f"/api/bookings/cancel/{token}").json()["cancellable"] is False
+    assert api.post(f"/api/bookings/cancel/{token}").status_code == 400
+
+
+def test_admin_bookings_do_not_expose_cancel_token(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON})
+    assert "cancel_token" not in api.get("/api/admin/bookings", headers=api.admin).json()[0]
+
+
+def test_confirmation_mail_text():
+    from app.mail import booking_message
+
+    msg = booking_message(
+        {"name": "Mario", "email": "m@x.it", "players": 2, "activity": "arco", "date": "2099-01-01",
+         "time": "10:00", "price_cents": 2500, "cancel_token": "abc"},
+        "from@x.it", "https://sito.it/",
+    )
+    body = msg.get_content()
+    assert msg["To"] == "m@x.it" and "https://sito.it/annulla/abc" in body and "01/01/2099" in body

@@ -238,7 +238,7 @@ export default function Book() {
         method: 'POST',
         body: { slotId: selectedSlot.id, name: form.name.trim(), email: form.email.trim(), phone, players },
       })
-      setConfirmed({ id, slot: selectedSlot, players, name: form.name.trim() })
+      setConfirmed({ id, slot: selectedSlot, players, name: form.name.trim(), email: form.email.trim() })
       setStep(3)
       load()
     } catch (err) {
@@ -472,6 +472,9 @@ export default function Book() {
               Prenotazione registrata a nome di <strong>{confirmed.name}</strong>.
               <br />
               Presentati 20 minuti prima per il briefing.
+              <br />
+              Abbiamo inviato una mail di conferma a <strong>{confirmed.email}</strong>, con il link per annullare
+              se non puoi venire.
             </p>
             <Summary slot={confirmed.slot} players={confirmed.players} />
             <div className="confirmation-actions">

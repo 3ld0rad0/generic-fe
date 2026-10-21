@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router-dom'
 import Home from './pages/Home.jsx'
 import Book from './pages/Book.jsx'
+import Cancel from './pages/Cancel.jsx'
 import Admin from './pages/Admin.jsx'
 import { ButtonLink, SiteLayout } from './ui.jsx'
 
@@ -27,6 +28,7 @@ export default function App() {
       <Route element={<SiteLayout />}>
         <Route index element={<Home />} />
         <Route path="prenota" element={<Book />} />
+        <Route path="annulla/:token" element={<Cancel />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="admin" element={<Admin />} />

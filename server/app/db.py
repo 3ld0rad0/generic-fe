@@ -20,9 +20,11 @@ CREATE TABLE IF NOT EXISTS bookings (
   email TEXT NOT NULL,
   phone TEXT NOT NULL,
   players INTEGER NOT NULL CHECK (players > 0),
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  cancel_token TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_bookings_slot ON bookings(slot_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_cancel_token ON bookings(cancel_token);
 """
 
 
@@ -56,6 +58,12 @@ def _migrate_slots(db):
         db.execute("PRAGMA foreign_keys = ON")
 
 
+def _migrate_bookings(db):
+    cols = [r["name"] for r in db.execute("PRAGMA table_info(bookings)")]
+    if cols and "cancel_token" not in cols:
+        db.execute("ALTER TABLE bookings ADD COLUMN cancel_token TEXT")
+
+
 def open_db(file=None):
     file = file or os.environ.get("DB_PATH", "./data/paintball.db")
     if file != ":memory:":
@@ -66,5 +74,6 @@ def open_db(file=None):
     db.execute("PRAGMA journal_mode = WAL")
     db.execute("PRAGMA foreign_keys = ON")
     _migrate_slots(db)
+    _migrate_bookings(db)
     db.executescript(SCHEMA)
     return db

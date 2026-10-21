@@ -5,17 +5,19 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .auth import Auth
 from .db import ACTIVITIES, open_db
+from .mail import smtp_mailer_from_env
 
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 TIME_RE = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
@@ -25,6 +27,8 @@ MAX_BODY_BYTES = 10 * 1024
 MAX_BULK_DATES = 366
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_S = 5 * 60
+# Gli orari dei turni sono locali al poligono.
+TZ = ZoneInfo(os.environ.get("APP_TZ", "Europe/Rome"))
 
 SLOT_COLUMNS = "SELECT id, activity, date, time, price_cents FROM slots"
 
@@ -37,8 +41,16 @@ def _is_str(v):
     return isinstance(v, str)
 
 
+def _now():
+    return datetime.now(TZ)
+
+
 def _today():
-    return datetime.now(timezone.utc).date().isoformat()
+    return _now().date().isoformat()
+
+
+def _starts_at(slot):
+    return datetime.fromisoformat(f"{slot['date']}T{slot['time']}").replace(tzinfo=TZ)
 
 
 def _bad(msg):
@@ -60,7 +72,7 @@ def _valid_date(date):
     return _is_str(date) and DATE_RE.fullmatch(date)
 
 
-def create_app(db, admin_password, secret, static_dir=None):
+def create_app(db, admin_password, secret, static_dir=None, mailer=None):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     auth = Auth(admin_password, secret)
     lock = threading.Lock()
@@ -128,7 +140,7 @@ def create_app(db, admin_password, secret, static_dir=None):
         return [dict(r) for r in rows]
 
     @app.post("/api/bookings", status_code=201)
-    def create_booking(body: dict[str, Any] | None = Body(default=None)):
+    def create_booking(background: BackgroundTasks, body: dict[str, Any] | None = Body(default=None)):
         b = body or {}
         slot_id, name, email, phone, players = (
             b.get("slotId"), b.get("name"), b.get("email"), b.get("phone"), b.get("players"),
@@ -150,11 +162,46 @@ def create_app(db, admin_password, secret, static_dir=None):
                 raise HTTPException(404, "Sessione non trovata")
             if slot["date"] < _today():
                 raise _bad("Sessione già passata")
+            token = secrets.token_urlsafe(24)
             cur = db.execute(
-                "INSERT INTO bookings (slot_id, name, email, phone, players) VALUES (?, ?, ?, ?, ?)",
-                (slot_id, name.strip(), email.strip(), phone.strip(), players),
+                "INSERT INTO bookings (slot_id, name, email, phone, players, cancel_token) VALUES (?, ?, ?, ?, ?, ?)",
+                (slot_id, name.strip(), email.strip(), phone.strip(), players, token),
+            )
+        if mailer:
+            background.add_task(
+                mailer,
+                {
+                    "id": cur.lastrowid, "name": name.strip(), "email": email.strip(), "players": players,
+                    "activity": slot["activity"], "date": slot["date"], "time": slot["time"],
+                    "price_cents": slot["price_cents"], "cancel_token": token,
+                },
             )
         return {"id": cur.lastrowid}
+
+    def _booking_by_token(token):
+        with lock:
+            row = db.execute(
+                """SELECT b.id, b.name, b.players, s.activity, s.date, s.time
+                   FROM bookings b JOIN slots s ON s.id = b.slot_id WHERE b.cancel_token = ?""",
+                (token,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Prenotazione non trovata o già annullata")
+        return row
+
+    @app.get("/api/bookings/cancel/{token}")
+    def booking_for_cancel(token: str):
+        row = _booking_by_token(token)
+        return {**dict(row), "cancellable": _starts_at(row) > _now()}
+
+    @app.post("/api/bookings/cancel/{token}", status_code=204)
+    def cancel_booking(token: str):
+        row = _booking_by_token(token)
+        if _starts_at(row) <= _now():
+            raise _bad("La sessione è già iniziata, non è più possibile annullare")
+        with lock:
+            db.execute("DELETE FROM bookings WHERE id = ?", (row["id"],))
+        return Response(status_code=204)
 
     @app.get("/api/admin/bookings", dependencies=[Depends(auth.require_admin)])
     def admin_bookings():
@@ -243,6 +290,7 @@ def create_default_app():
     here = Path(__file__).resolve().parent
     return create_app(
         db=open_db(),
+        mailer=smtp_mailer_from_env(),
         admin_password=admin_password,
         secret=os.environ.get("SESSION_SECRET") or secrets.token_hex(32),
         static_dir=os.environ.get("STATIC_DIR") or here.parent.parent / "client" / "dist",
