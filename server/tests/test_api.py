@@ -1,6 +1,9 @@
 import pytest
+from datetime import datetime
+
 from fastapi.testclient import TestClient
 
+from app import main
 from app.db import open_db
 from app.main import create_app
 
@@ -26,7 +29,7 @@ def test_players_is_informative_and_slot_has_no_seat_limit(api):
     book = lambda n: api.post("/api/bookings", json={"slotId": s["id"], "players": n, **PERSON}).status_code
     assert book(40) == 201
     assert book(40) == 201
-    assert api.get("/api/slots").json()[0].keys() == {"id", "activity", "date", "time", "price_cents"}
+    assert api.get("/api/slots").json()[0].keys() == {"id", "activity", "date", "time", "price_cents", "bookable"}
     assert [b["players"] for b in api.get("/api/admin/bookings", headers=api.admin).json()] == [40, 40]
 
 
@@ -127,3 +130,56 @@ def test_db_with_capacity_and_activity_drops_capacity_keeping_bookings(tmp_path)
     assert [r[1] for r in db.execute("PRAGMA table_info(slots)")] == ["id", "activity", "date", "time", "price_cents"]
     assert db.execute("SELECT activity FROM slots").fetchone()[0] == "arco"
     assert db.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 1
+
+
+def _at(monkeypatch, hh_mm):
+    now = datetime.fromisoformat(f"2099-01-01T{hh_mm}").replace(tzinfo=main.TZ)
+    monkeypatch.setattr(main, "_now", lambda: now)
+
+
+def test_booking_closes_one_hour_before_the_slot(api, monkeypatch):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    book = lambda: api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON}).status_code
+
+    _at(monkeypatch, "09:01")
+    assert api.get("/api/slots?from=2099-01-01").json()[0]["bookable"] is False
+    assert book() == 400
+
+    _at(monkeypatch, "09:00")
+    assert api.get("/api/slots?from=2099-01-01").json()[0]["bookable"] is True
+    assert book() == 201
+
+
+def _booker(api, monkeypatch):
+    monkeypatch.setattr(main, "BOOKING_IP_MAX", 100)
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    return lambda **p: api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, **p}}).status_code
+
+
+def test_active_bookings_per_email_are_limited_and_deleting_frees_a_place(api, monkeypatch):
+    book = _booker(api, monkeypatch)
+    assert [book(phone=f"33300{i}") for i in range(main.MAX_ACTIVE_PER_CONTACT)] == [201] * main.MAX_ACTIVE_PER_CONTACT
+    assert book(email="M@X.IT", phone="111111") == 429
+
+    api.delete("/api/admin/bookings/1", headers=api.admin)
+    assert book(phone="777777") == 201
+
+
+def test_active_bookings_per_phone_are_limited_ignoring_spaces(api, monkeypatch):
+    book = _booker(api, monkeypatch)
+    phones = ["333 000 111", "333000111", "3330 00111"]
+    assert [book(email=f"p{i}@x.it", phone=ph) for i, ph in enumerate(phones)] == [201, 201, 201]
+    assert book(email="new@x.it", phone="333000111") == 429
+    assert book(email="new@x.it", phone="555000111") == 201
+
+
+def test_bookings_per_ip_are_limited(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    for i in range(main.BOOKING_IP_MAX):
+        r = api.post(
+            "/api/bookings",
+            json={"slotId": s["id"], "players": 1, "name": "A", "email": f"a{i}@x.it", "phone": f"55500{i}00"},
+        )
+        assert r.status_code == 201
+    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, "name": "A", "email": "z@x.it", "phone": "5559999"})
+    assert r.status_code == 429

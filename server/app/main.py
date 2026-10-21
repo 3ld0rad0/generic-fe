@@ -5,9 +5,10 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -25,6 +26,12 @@ MAX_BODY_BYTES = 10 * 1024
 MAX_BULK_DATES = 366
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_S = 5 * 60
+BOOKING_IP_MAX = 3
+BOOKING_IP_WINDOW_S = 60 * 60
+MAX_ACTIVE_PER_CONTACT = 3
+BOOKING_CUTOFF = timedelta(hours=1)
+# Gli orari dei turni sono locali al poligono.
+TZ = ZoneInfo(os.environ.get("APP_TZ", "Europe/Rome"))
 
 SLOT_COLUMNS = "SELECT id, activity, date, time, price_cents FROM slots"
 
@@ -37,8 +44,20 @@ def _is_str(v):
     return isinstance(v, str)
 
 
+def _now():
+    return datetime.now(TZ)
+
+
 def _today():
-    return datetime.now(timezone.utc).date().isoformat()
+    return _now().date().isoformat()
+
+
+def _starts_at(slot):
+    return datetime.fromisoformat(f"{slot['date']}T{slot['time']}").replace(tzinfo=TZ)
+
+
+def _bookable(slot):
+    return _starts_at(slot) - _now() >= BOOKING_CUTOFF
 
 
 def _bad(msg):
@@ -65,6 +84,7 @@ def create_app(db, admin_password, secret, static_dir=None):
     auth = Auth(admin_password, secret)
     lock = threading.Lock()
     failures: dict[str, tuple[int, float]] = {}
+    recent_bookings: dict[str, list[float]] = {}
 
     @contextmanager
     def tx():
@@ -125,10 +145,16 @@ def create_app(db, admin_password, secret, static_dir=None):
                 f"{SLOT_COLUMNS} WHERE date >= ? AND (? IS NULL OR activity = ?) ORDER BY date, time, activity",
                 (from_, activity, activity),
             ).fetchall()
-        return [dict(r) for r in rows]
+        return [{**dict(r), "bookable": _bookable(r)} for r in rows]
 
     @app.post("/api/bookings", status_code=201)
-    def create_booking(body: dict[str, Any] | None = Body(default=None)):
+    def create_booking(request: Request, body: dict[str, Any] | None = Body(default=None)):
+        ip = request.client.host if request.client else "unknown"
+        now_s = time.time()
+        recent = [t for t in recent_bookings.get(ip, []) if t > now_s - BOOKING_IP_WINDOW_S]
+        if len(recent) >= BOOKING_IP_MAX:
+            recent_bookings[ip] = recent
+            raise HTTPException(429, "Troppe prenotazioni da questa connessione, riprova più tardi")
         b = body or {}
         slot_id, name, email, phone, players = (
             b.get("slotId"), b.get("name"), b.get("email"), b.get("phone"), b.get("players"),
@@ -148,12 +174,22 @@ def create_app(db, admin_password, secret, static_dir=None):
             slot = db.execute(f"{SLOT_COLUMNS} WHERE id = ?", (slot_id,)).fetchone()
             if slot is None:
                 raise HTTPException(404, "Sessione non trovata")
-            if slot["date"] < _today():
-                raise _bad("Sessione già passata")
+            if not _bookable(slot):
+                raise _bad("Prenotazioni chiuse: la sessione inizia tra meno di un'ora o è già passata")
+            active = db.execute(
+                """SELECT COUNT(*) FROM bookings b JOIN slots s ON s.id = b.slot_id
+                   WHERE s.date >= ? AND (lower(b.email) = ? OR replace(b.phone, ' ', '') = ?)""",
+                (_today(), email.strip().lower(), phone.replace(" ", "")),
+            ).fetchone()[0]
+            if active >= MAX_ACTIVE_PER_CONTACT:
+                raise HTTPException(
+                    429, f"Hai già {MAX_ACTIVE_PER_CONTACT} prenotazioni attive: annullane una per prenotarne un'altra"
+                )
             cur = db.execute(
                 "INSERT INTO bookings (slot_id, name, email, phone, players) VALUES (?, ?, ?, ?, ?)",
                 (slot_id, name.strip(), email.strip(), phone.strip(), players),
             )
+        recent_bookings[ip] = [*recent, now_s]
         return {"id": cur.lastrowid}
 
     @app.get("/api/admin/bookings", dependencies=[Depends(auth.require_admin)])

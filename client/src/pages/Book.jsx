@@ -161,8 +161,9 @@ export default function Book() {
   const load = useCallback(
     () =>
       api(`/slots?from=${today}&activity=${activity}`).then(
-        (data) => {
+        (all) => {
           if (activityRef.current !== activity) return null
+          const data = all.filter((s) => s.bookable)
           setSlots(data)
           setLoadError('')
           return data
@@ -243,7 +244,7 @@ export default function Book() {
       load()
     } catch (err) {
       setSubmitError(err.message)
-      if (err.status === 404) {
+      if (err.status === 404 || err.status === 400) {
         const fresh = await load()
         if (!fresh?.some((s) => s.id === slotId)) {
           setSlotId(null)
@@ -287,6 +288,7 @@ export default function Book() {
               <div>
                 <h2>Scegli attività, data e ora</h2>
                 <p>Seleziona l'attività, il giorno e la fascia oraria che preferisci.</p>
+                <p>Le prenotazioni si chiudono un'ora prima dell'inizio di ogni sessione.</p>
               </div>
             </div>
             <div className="activity-picker" role="group" aria-label="Attività">
