@@ -27,7 +27,7 @@ const features = [
 
 const steps = [
   ['target', '01', 'Scegli l’attività', 'Paintball, tiro con l’arco o carabina: scegli la tua sfida.'],
-  ['calendar', '02', 'Scegli data e orario', 'Controlla i posti disponibili in tempo reale.'],
+  ['calendar', '02', 'Scegli data e orario', 'Controlla le date disponibili in tempo reale.'],
   ['check', '03', 'Conferma', 'Inserisci i tuoi dati. Al resto pensiamo noi.'],
 ]
 

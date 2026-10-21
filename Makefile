@@ -5,7 +5,7 @@ VENV := server/.venv
 DAYS ?= 30
 PER_DAY ?= 4
 
-.PHONY: help install dev server client test seed lint build clean
+.PHONY: help install dev server client test seed reset-db lint build clean
 
 help:
 	@echo "make install  - installa dipendenze server (venv) e client"
@@ -14,6 +14,7 @@ help:
 	@echo "make client   - avvia solo il dev server Vite"
 	@echo "make test     - esegue i test del server"
 	@echo "make seed     - popola il DB con turni casuali (DAYS=$(DAYS) PER_DAY=$(PER_DAY))"
+	@echo "make reset-db - svuota le tabelle slots e bookings"
 	@echo "make lint     - lint del client"
 	@echo "make build    - build di produzione del client"
 	@echo "make clean    - rimuove venv, node_modules e dist"
@@ -44,6 +45,9 @@ test: $(VENV)/.installed
 
 seed: $(VENV)/.installed
 	cd server && .venv/bin/python -m app.seed --days $(DAYS) --per-day $(PER_DAY)
+
+reset-db: $(VENV)/.installed
+	cd server && .venv/bin/python -c "from app.db import open_db; db = open_db(); db.executescript(\"DELETE FROM bookings; DELETE FROM slots; DELETE FROM sqlite_sequence WHERE name IN ('bookings', 'slots');\")"
 
 lint: client/node_modules/.installed
 	cd client && npm run lint

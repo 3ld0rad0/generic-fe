@@ -14,12 +14,12 @@ const WEEKDAYS = [
 ]
 const MAX_DATES = 366
 const EMPTY_SESSION = {
+  mode: 'single',
   activity: ACTIVITIES[0].slug,
   date: '',
   endDate: '',
   days: WEEKDAYS.map(([, d]) => d),
   time: '',
-  capacity: '16',
   price: '25',
 }
 const activityName = (slug) => activityBySlug(slug)?.name ?? slug
@@ -95,6 +95,8 @@ function Dashboard({ onLogout }) {
   const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [activityFilter, setActivityFilter] = useState('')
+  const [slotPeriod, setSlotPeriod] = useState('upcoming')
+  const [slotDate, setSlotDate] = useState('')
   const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
   const [saving, setSaving] = useState(false)
   const [today] = useState(todayISO)
@@ -139,29 +141,33 @@ function Dashboard({ onLogout }) {
 
   const addSession = async (e) => {
     e.preventDefault()
-    const { activity, date, endDate, days, time, capacity, price } = sessionForm
+    const { mode, activity, date, endDate, days, time, price } = sessionForm
+    const batch = mode === 'batch'
+    const priceCents = Math.round(Number(price) * 100)
     if (!date || !time) return setError('Inserisci data e ora della sessione')
-    if (endDate && endDate < date) return setError('La data di fine precede quella di inizio')
-    const dates = expandDates(date, endDate, days)
+    if (batch && !endDate) return setError('Inserisci la data di fine del periodo')
+    if (batch && endDate < date) return setError('La data di fine precede quella di inizio')
+    const dates = batch ? expandDates(date, endDate, days) : [date]
     if (!dates.length) return setError('Nessun giorno selezionato nel periodo')
     if (dates.length > MAX_DATES) return setError(`Massimo ${MAX_DATES} sessioni alla volta`)
     setSaving(true)
     setNotice('')
     let result
     const ok = await run(async () => {
-      result = await api('/admin/slots/bulk', {
-        method: 'POST',
-        admin: true,
-        body: { activity, dates, time, capacity: Number(capacity), priceCents: Math.round(Number(price) * 100) },
-      })
+      result = batch
+        ? await api('/admin/slots/bulk', { method: 'POST', admin: true, body: { activity, dates, time, priceCents } })
+        : await api('/admin/slots', { method: 'POST', admin: true, body: { activity, date, time, priceCents } })
     })
     setSaving(false)
     if (!ok) return
-    const { created, skipped } = result
-    setNotice(
-      `${created} ${created === 1 ? 'sessione creata' : 'sessioni create'}` +
-        (skipped ? `, ${skipped} già ${skipped === 1 ? 'esistente' : 'esistenti'}` : ''),
-    )
+    if (!batch) setNotice('Sessione creata')
+    else {
+      const { created, skipped } = result
+      setNotice(
+        `${created} ${created === 1 ? 'sessione creata' : 'sessioni create'}` +
+          (skipped ? `, ${skipped} già ${skipped === 1 ? 'esistente' : 'esistenti'}` : ''),
+      )
+    }
     setSessionForm({ ...sessionForm, date: '', endDate: '', time: '' })
   }
 
@@ -183,8 +189,20 @@ function Dashboard({ onLogout }) {
       (!activityFilter || b.activity === activityFilter) &&
       (!q || b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q)),
   )
-  const visibleSlots = (slots ?? []).filter((s) => !activityFilter || s.activity === activityFilter)
+  const visibleSlots = (slots ?? []).filter(
+    (s) =>
+      (!activityFilter || s.activity === activityFilter) &&
+      (slotDate
+        ? s.date === slotDate
+        : slotPeriod === 'all' || (slotPeriod === 'upcoming' ? s.date >= today : s.date < today)),
+  )
   const upcoming = (bookings ?? []).filter((b) => b.date >= today)
+  const bookedBySlot = {}
+  for (const b of bookings ?? []) {
+    const t = (bookedBySlot[b.slot_id] ||= { bookings: 0, players: 0 })
+    t.bookings += 1
+    t.players += b.players
+  }
 
   return (
     <main className="dashboard">
@@ -376,7 +394,23 @@ function Dashboard({ onLogout }) {
             <form className="session-form admin-panel" onSubmit={addSession}>
               <div>
                 <h2>Aggiungi sessione</h2>
-                <p>Crea uno o più turni con stesso orario, capienza e prezzo.</p>
+                <p>Crea un singolo turno oppure un gruppo di turni con stesso orario e prezzo.</p>
+              </div>
+              <div className="activity-picker filter two" role="group" aria-label="Modalità di inserimento">
+                {[
+                  ['single', 'Singola'],
+                  ['batch', 'Batch'],
+                ].map(([mode, label]) => (
+                  <button
+                    type="button"
+                    key={mode}
+                    className={sessionForm.mode === mode ? 'selected' : ''}
+                    aria-pressed={sessionForm.mode === mode}
+                    onClick={() => setSessionForm({ ...sessionForm, mode })}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
               <label className="field">
                 <span>Attività</span>
@@ -388,50 +422,49 @@ function Dashboard({ onLogout }) {
                   ))}
                 </select>
               </label>
-              <Field label="Data" type="date" required min={today} value={sessionForm.date} onChange={setField('date')} />
               <Field
-                label="Fino al (opzionale)"
+                label={sessionForm.mode === 'batch' ? 'Dal' : 'Data'}
                 type="date"
-                min={sessionForm.date || today}
-                value={sessionForm.endDate}
-                onChange={setField('endDate')}
+                required
+                min={today}
+                value={sessionForm.date}
+                onChange={setField('date')}
               />
-              {sessionForm.endDate && (
-                <div className="weekday-picker" role="group" aria-label="Giorni della settimana">
-                  {WEEKDAYS.map(([label, day]) => (
-                    <button
-                      type="button"
-                      key={day}
-                      className={sessionForm.days.includes(day) ? 'selected' : ''}
-                      aria-pressed={sessionForm.days.includes(day)}
-                      onClick={() => toggleDay(day)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+              {sessionForm.mode === 'batch' && (
+                <>
+                  <Field
+                    label="Al"
+                    type="date"
+                    required
+                    min={sessionForm.date || today}
+                    value={sessionForm.endDate}
+                    onChange={setField('endDate')}
+                  />
+                  <div className="weekday-picker" role="group" aria-label="Giorni della settimana">
+                    {WEEKDAYS.map(([label, day]) => (
+                      <button
+                        type="button"
+                        key={day}
+                        className={sessionForm.days.includes(day) ? 'selected' : ''}
+                        aria-pressed={sessionForm.days.includes(day)}
+                        onClick={() => toggleDay(day)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
               <Field label="Ora" type="time" required value={sessionForm.time} onChange={setField('time')} />
-              <div className="two-fields">
-                <Field
-                  label="Capienza"
-                  type="number"
-                  required
-                  min="1"
-                  max="500"
-                  value={sessionForm.capacity}
-                  onChange={setField('capacity')}
-                />
-                <Field
-                  label="Prezzo (€)"
-                  type="number"
-                  required
-                  min="0"
-                  step="0.01"
-                  value={sessionForm.price}
-                  onChange={setField('price')}
-                />
-              </div>
+              <Field
+                label="Prezzo per prenotazione (€)"
+                type="number"
+                required
+                min="0"
+                step="0.01"
+                value={sessionForm.price}
+                onChange={setField('price')}
+              />
               <Button type="submit" icon="plus" disabled={saving}>
                 Aggiungi turni
               </Button>
@@ -439,57 +472,70 @@ function Dashboard({ onLogout }) {
             <div className="admin-panel session-list">
               <div>
                 <h2>Sessioni</h2>
-                <p>Tutti i turni creati, con i posti già prenotati.</p>
+                <p>Tutti i turni creati, con le prenotazioni ricevute.</p>
               </div>
-              {loading ? (
-                <div className="state-card">
-                  <span className="spinner" />
-                  <h4>Caricamento...</h4>
-                </div>
-              ) : visibleSlots.length === 0 ? (
-                <div className="admin-empty">
-                  <Icon name="calendar" size={34} />
-                  <h3>Nessuna sessione</h3>
-                  <p>Crea il primo turno con il modulo qui accanto.</p>
-                </div>
-              ) : (
-                visibleSlots.map((session) => (
-                  <article key={session.id}>
-                    <div className="session-date">
-                      <Icon name="calendar" />
-                      <span>
-                        <strong>{formatShortDate(session.date)}</strong>
-                        <small>
-                          {session.time} · {activityName(session.activity)}
-                        </small>
-                      </span>
-                    </div>
-                    <div>
-                      <span>Prenotati</span>
-                      <strong>
-                        {session.capacity - session.available}/{session.capacity} posti
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Prezzo</span>
-                      <strong>{euro(session.price_cents)}</strong>
-                    </div>
-                    <button
-                      type="button"
-                      className="delete"
-                      aria-label={`Elimina sessione ${activityName(session.activity)} del ${formatShortDate(session.date)} alle ${session.time}`}
-                      onClick={() =>
-                        remove(
-                          `/admin/slots/${session.id}`,
-                          'Eliminare la sessione? Verranno cancellate anche tutte le sue prenotazioni.',
-                        )
-                      }
-                    >
-                      <Icon name="trash" size={18} />
-                    </button>
-                  </article>
-                ))
-              )}
+              <div className="session-filters">
+                <label className="field">
+                  <span>Mostra</span>
+                  <select value={slotPeriod} disabled={!!slotDate} onChange={(e) => setSlotPeriod(e.target.value)}>
+                    <option value="upcoming">Future</option>
+                    <option value="past">Passate</option>
+                    <option value="all">Tutte</option>
+                  </select>
+                </label>
+                <Field label="Data" type="date" value={slotDate} onChange={(e) => setSlotDate(e.target.value)} />
+              </div>
+              <div className="session-scroll">
+                {loading ? (
+                  <div className="state-card">
+                    <span className="spinner" />
+                    <h4>Caricamento...</h4>
+                  </div>
+                ) : visibleSlots.length === 0 ? (
+                  <div className="admin-empty">
+                    <Icon name="calendar" size={34} />
+                    <h3>Nessuna sessione</h3>
+                    <p>Nessun turno corrisponde ai filtri. Crea un turno con il modulo qui accanto.</p>
+                  </div>
+                ) : (
+                  visibleSlots.map((session) => (
+                    <article key={session.id}>
+                      <div className="session-date">
+                        <Icon name="calendar" />
+                        <span>
+                          <strong>{formatShortDate(session.date)}</strong>
+                          <small>
+                            {session.time} · {activityName(session.activity)}
+                          </small>
+                        </span>
+                      </div>
+                      <div>
+                        <span>Prenotati</span>
+                        <strong>
+                          {bookedBySlot[session.id]?.bookings ?? 0} · {bookedBySlot[session.id]?.players ?? 0} partecipanti
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Prezzo</span>
+                        <strong>{euro(session.price_cents)}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        className="delete"
+                        aria-label={`Elimina sessione ${activityName(session.activity)} del ${formatShortDate(session.date)} alle ${session.time}`}
+                        onClick={() =>
+                          remove(
+                            `/admin/slots/${session.id}`,
+                            'Eliminare la sessione? Verranno cancellate anche tutte le sue prenotazioni.',
+                          )
+                        }
+                      >
+                        <Icon name="trash" size={18} />
+                      </button>
+                    </article>
+                  ))
+                )}
+              </div>
             </div>
           </section>
         )}

@@ -6,6 +6,7 @@ import { Button, ButtonLink, Field, Icon } from '../ui.jsx'
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const EMPTY_FORM = { name: '', email: '', phone: '' }
+const MAX_PLAYERS = 100
 
 const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`
 
@@ -62,16 +63,14 @@ function Calendar({ month, onMonthChange, byDate, selected, onSelect, lastDate, 
         {Array.from({ length: daysInMonth }, (_, i) => {
           const iso = toISO(new Date(year, m, i + 1))
           const daySlots = byDate[iso]
-          const hasSeats = daySlots?.some((s) => s.available > 0)
-          const status = !daySlots ? '' : hasSeats ? 'day-available' : 'day-full'
           return (
             <button
               type="button"
               key={iso}
               disabled={iso < today || !daySlots}
-              className={`${status} ${selected === iso ? 'selected' : ''}`}
+              className={`${daySlots ? 'day-available' : ''} ${selected === iso ? 'selected' : ''}`}
               aria-pressed={selected === iso}
-              aria-label={`${formatDate(iso)}${daySlots ? (hasSeats ? ', posti disponibili' : ', completo') : ''}`}
+              aria-label={`${formatDate(iso)}${daySlots ? ', disponibile' : ''}`}
               onClick={() => onSelect(iso)}
             >
               {i + 1}
@@ -84,9 +83,6 @@ function Calendar({ month, onMonthChange, byDate, selected, onSelect, lastDate, 
           <i /> Disponibile
         </span>
         <span>
-          <i className="full-dot" /> Completo
-        </span>
-        <span>
           <i className="selected-dot" /> Selezionato
         </span>
       </div>
@@ -95,30 +91,18 @@ function Calendar({ month, onMonthChange, byDate, selected, onSelect, lastDate, 
 }
 
 function SlotCard({ slot, selected, onClick }) {
-  const full = slot.available <= 0
-  const low = !full && slot.available <= 3
   return (
     <button
       type="button"
       className={`slot-card ${selected ? 'selected' : ''}`}
-      disabled={full}
       aria-pressed={selected}
       onClick={onClick}
     >
       <span className="slot-radio">{selected && <i />}</span>
       <strong>{slot.time}</strong>
       <span>
-        {euro(slot.price_cents)} <small>/ persona</small>
+        {euro(slot.price_cents)} <small>/ prenotazione</small>
       </span>
-      <em className={full ? 'full' : low ? 'low' : 'available'}>
-        {full
-          ? 'Completo'
-          : slot.available === 1
-            ? 'Ultimo posto'
-            : low
-              ? `Ultimi ${slot.available} posti`
-              : `${slot.available} posti liberi`}
-      </em>
     </button>
   )
 }
@@ -149,7 +133,7 @@ function Summary({ slot, players }) {
       <hr />
       <div className="total">
         <span>Totale</span>
-        <strong>{euro(slot.price_cents * players)}</strong>
+        <strong>{euro(slot.price_cents)}</strong>
       </div>
       <small>Pagamento direttamente al poligono</small>
     </aside>
@@ -213,7 +197,7 @@ export default function Book() {
     return groups
   }, [slots])
 
-  const defaultDate = slots?.find((s) => s.available > 0)?.date ?? slots?.[0]?.date ?? null
+  const defaultDate = slots?.[0]?.date ?? null
   const date = pickedDate ?? defaultDate
   const month = pickedMonth ?? [Number((date ?? today).slice(0, 4)), Number((date ?? today).slice(5, 7)) - 1]
   const daySlots = (date && byDate[date]) || []
@@ -233,7 +217,6 @@ export default function Book() {
   }
 
   const goToDetails = () => {
-    setPlayers((p) => Math.min(Math.max(p, 1), selectedSlot.available))
     setSubmitError('')
     setStep(2)
   }
@@ -260,14 +243,11 @@ export default function Book() {
       load()
     } catch (err) {
       setSubmitError(err.message)
-      if (err.status === 404 || err.status === 409) {
+      if (err.status === 404) {
         const fresh = await load()
-        const slot = fresh?.find((s) => s.id === slotId)
-        if (!slot || slot.available <= 0) {
+        if (!fresh?.some((s) => s.id === slotId)) {
           setSlotId(null)
           setStep(1)
-        } else {
-          setPlayers((p) => Math.min(p, slot.available))
         }
       }
     } finally {
@@ -390,7 +370,7 @@ export default function Book() {
             )}
             <div className="booking-actions">
               <span>{selectedSlot ? `${dateLabel} · ${selectedSlot.time}` : 'Seleziona un orario per continuare'}</span>
-              <Button disabled={!selectedSlot || selectedSlot.available <= 0} icon="arrow" onClick={goToDetails}>
+              <Button disabled={!selectedSlot} icon="arrow" onClick={goToDetails}>
                 Continua
               </Button>
             </div>
@@ -440,9 +420,7 @@ export default function Book() {
                 <div className="player-stepper">
                   <div>
                     <label id="players-label">Numero di partecipanti</label>
-                    <small>
-                      Minimo 1, massimo {selectedSlot.available} {selectedSlot.available === 1 ? 'partecipante' : 'partecipanti'}
-                    </small>
+                    <small>Indicativo: serve al gestore per organizzare la sessione</small>
                   </div>
                   <div role="group" aria-labelledby="players-label">
                     <button
@@ -456,8 +434,8 @@ export default function Book() {
                     <strong aria-live="polite">{players}</strong>
                     <button
                       type="button"
-                      onClick={() => setPlayers(Math.min(selectedSlot.available, players + 1))}
-                      disabled={players >= selectedSlot.available}
+                      onClick={() => setPlayers(Math.min(MAX_PLAYERS, players + 1))}
+                      disabled={players >= MAX_PLAYERS}
                       aria-label="Aumenta partecipanti"
                     >
                       <Icon name="plus" size={18} />

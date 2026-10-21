@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app.db import open_db
 from app.main import create_app
 
-SLOT = {"activity": "paintball", "date": "2099-01-01", "time": "10:00", "capacity": 5, "priceCents": 2500}
+SLOT = {"activity": "paintball", "date": "2099-01-01", "time": "10:00", "priceCents": 2500}
 PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456"}
 
 
@@ -21,13 +21,13 @@ def test_admin_routes_require_auth_and_wrong_password_is_rejected(api):
     assert api.post("/api/admin/login", json={"password": "x"}).status_code == 401
 
 
-def test_booking_respects_capacity(api):
+def test_players_is_informative_and_slot_has_no_seat_limit(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
     book = lambda n: api.post("/api/bookings", json={"slotId": s["id"], "players": n, **PERSON}).status_code
-    assert book(3) == 201
-    assert book(3) == 409
-    assert book(2) == 201
-    assert api.get("/api/slots").json()[0]["available"] == 0
+    assert book(40) == 201
+    assert book(40) == 201
+    assert api.get("/api/slots").json()[0].keys() == {"id", "activity", "date", "time", "price_cents"}
+    assert [b["players"] for b in api.get("/api/admin/bookings", headers=api.admin).json()] == [40, 40]
 
 
 def test_validation_and_duplicate_slots(api):
@@ -101,4 +101,29 @@ def test_legacy_db_is_migrated_keeping_bookings(tmp_path):
     old.close()
     db = open_db(path)
     assert db.execute("SELECT activity FROM slots").fetchone()[0] == "paintball"
+    assert db.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 1
+    assert "capacity" not in [r[1] for r in db.execute("PRAGMA table_info(slots)")]
+
+
+def test_db_with_capacity_and_activity_drops_capacity_keeping_bookings(tmp_path):
+    import sqlite3
+
+    path = str(tmp_path / "mid.db")
+    old = sqlite3.connect(path)
+    old.executescript(
+        """
+        CREATE TABLE slots (id INTEGER PRIMARY KEY AUTOINCREMENT, activity TEXT NOT NULL DEFAULT 'paintball',
+          date TEXT NOT NULL, time TEXT NOT NULL, capacity INTEGER NOT NULL, price_cents INTEGER NOT NULL,
+          UNIQUE (activity, date, time));
+        CREATE TABLE bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, slot_id INTEGER NOT NULL REFERENCES slots(id) ON DELETE CASCADE,
+          name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, players INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')));
+        INSERT INTO slots (activity, date, time, capacity, price_cents) VALUES ('arco', '2099-01-01', '10:00', 5, 2500);
+        INSERT INTO bookings (slot_id, name, email, phone, players) VALUES (1, 'M', 'm@x.it', '123456', 2);
+        """
+    )
+    old.close()
+    db = open_db(path)
+    assert [r[1] for r in db.execute("PRAGMA table_info(slots)")] == ["id", "activity", "date", "time", "price_cents"]
+    assert db.execute("SELECT activity FROM slots").fetchone()[0] == "arco"
     assert db.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 1

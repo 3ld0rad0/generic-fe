@@ -26,11 +26,7 @@ MAX_BULK_DATES = 366
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_S = 5 * 60
 
-SLOT_WITH_AVAILABILITY = """
-  SELECT s.id, s.activity, s.date, s.time, s.capacity, s.price_cents,
-         s.capacity - COALESCE(SUM(b.players), 0) AS available
-  FROM slots s LEFT JOIN bookings b ON b.slot_id = s.id
-"""
+SLOT_COLUMNS = "SELECT id, activity, date, time, price_cents FROM slots"
 
 
 def _is_pos_int(n):
@@ -50,16 +46,14 @@ def _bad(msg):
 
 
 def _slot_fields(b):
-    activity, time_, capacity, price = b.get("activity"), b.get("time"), b.get("capacity"), b.get("priceCents")
+    activity, time_, price = b.get("activity"), b.get("time"), b.get("priceCents")
     if activity not in ACTIVITIES:
         raise _bad("Attività non valida")
     if not _is_str(time_) or not TIME_RE.fullmatch(time_):
         raise _bad("Ora non valida")
-    if not _is_pos_int(capacity) or capacity > 500:
-        raise _bad("Capienza non valida")
     if type(price) is not int or price < 0:
         raise _bad("Prezzo non valido")
-    return activity, time_, capacity, price
+    return activity, time_, price
 
 
 def _valid_date(date):
@@ -74,7 +68,7 @@ def create_app(db, admin_password, secret, static_dir=None):
 
     @contextmanager
     def tx():
-        # BEGIN IMMEDIATE serializza il controllo della capienza e l'inserimento.
+        # BEGIN IMMEDIATE serializza le scritture.
         with lock:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -117,7 +111,7 @@ def create_app(db, admin_password, secret, static_dir=None):
         failures.pop(ip, None)
         return {"token": token}
 
-    # Pubblico: slot futuri con disponibilità
+    # Pubblico: slot futuri
     @app.get("/api/slots")
     def list_slots(request: Request):
         from_ = request.query_params.get("from", "")
@@ -128,8 +122,7 @@ def create_app(db, admin_password, secret, static_dir=None):
             raise _bad("Attività non valida")
         with lock:
             rows = db.execute(
-                f"{SLOT_WITH_AVAILABILITY} WHERE s.date >= ? AND (? IS NULL OR s.activity = ?) "
-                "GROUP BY s.id ORDER BY s.date, s.time, s.activity",
+                f"{SLOT_COLUMNS} WHERE date >= ? AND (? IS NULL OR activity = ?) ORDER BY date, time, activity",
                 (from_, activity, activity),
             ).fetchall()
         return [dict(r) for r in rows]
@@ -152,13 +145,11 @@ def create_app(db, admin_password, secret, static_dir=None):
             raise _bad("Numero partecipanti non valido")
 
         with tx():
-            slot = db.execute(f"{SLOT_WITH_AVAILABILITY} WHERE s.id = ? GROUP BY s.id", (slot_id,)).fetchone()
+            slot = db.execute(f"{SLOT_COLUMNS} WHERE id = ?", (slot_id,)).fetchone()
             if slot is None:
                 raise HTTPException(404, "Sessione non trovata")
             if slot["date"] < _today():
                 raise _bad("Sessione già passata")
-            if slot["available"] < players:
-                raise HTTPException(409, f"Posti insufficienti (disponibili: {slot['available']})")
             cur = db.execute(
                 "INSERT INTO bookings (slot_id, name, email, phone, players) VALUES (?, ?, ?, ?, ?)",
                 (slot_id, name.strip(), email.strip(), phone.strip(), players),
@@ -190,12 +181,12 @@ def create_app(db, admin_password, secret, static_dir=None):
         date = b.get("date")
         if not _valid_date(date):
             raise _bad("Data non valida")
-        activity, time_, capacity, price = _slot_fields(b)
+        activity, time_, price = _slot_fields(b)
         try:
             with tx():
                 cur = db.execute(
-                    "INSERT INTO slots (activity, date, time, capacity, price_cents) VALUES (?, ?, ?, ?, ?)",
-                    (activity, date, time_, capacity, price),
+                    "INSERT INTO slots (activity, date, time, price_cents) VALUES (?, ?, ?, ?)",
+                    (activity, date, time_, price),
                 )
         except sqlite3.IntegrityError:
             raise HTTPException(409, "Sessione già esistente")
@@ -209,13 +200,13 @@ def create_app(db, admin_password, secret, static_dir=None):
             raise _bad(f"Indica da 1 a {MAX_BULK_DATES} date")
         if not all(_valid_date(d) for d in dates):
             raise _bad("Data non valida")
-        activity, time_, capacity, price = _slot_fields(b)
+        activity, time_, price = _slot_fields(b)
         created = 0
         with tx():
             for date in sorted(set(dates)):
                 cur = db.execute(
-                    "INSERT OR IGNORE INTO slots (activity, date, time, capacity, price_cents) VALUES (?, ?, ?, ?, ?)",
-                    (activity, date, time_, capacity, price),
+                    "INSERT OR IGNORE INTO slots (activity, date, time, price_cents) VALUES (?, ?, ?, ?)",
+                    (activity, date, time_, price),
                 )
                 created += cur.rowcount
         return {"created": created, "skipped": len(set(dates)) - created}

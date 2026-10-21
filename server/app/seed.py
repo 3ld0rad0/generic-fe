@@ -5,7 +5,6 @@ from datetime import date, timedelta
 from .db import ACTIVITIES, open_db
 
 HOURS = ("09:00", "10:30", "12:00", "14:30", "16:00", "17:30", "19:00")
-CAPACITIES = (6, 8, 10, 12, 16, 20)
 PRICES_CENTS = (1500, 2000, 2500, 3000, 3500)
 
 
@@ -18,8 +17,8 @@ def seed_slots(db, days=30, per_day=4, seed=None, start=None):
         day = (start + timedelta(days=offset)).isoformat()
         for _ in range(rng.randint(0, per_day)):
             cur = db.execute(
-                "INSERT OR IGNORE INTO slots (activity, date, time, capacity, price_cents) VALUES (?, ?, ?, ?, ?)",
-                (rng.choice(ACTIVITIES), day, rng.choice(HOURS), rng.choice(CAPACITIES), rng.choice(PRICES_CENTS)),
+                "INSERT OR IGNORE INTO slots (activity, date, time, price_cents) VALUES (?, ?, ?, ?)",
+                (rng.choice(ACTIVITIES), day, rng.choice(HOURS), rng.choice(PRICES_CENTS)),
             )
             created += cur.rowcount
     return created

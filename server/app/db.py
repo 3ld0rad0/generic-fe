@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS slots (
   activity TEXT NOT NULL DEFAULT 'paintball' CHECK (activity IN ({_ACTIVITIES_SQL})),
   date TEXT NOT NULL,
   time TEXT NOT NULL,
-  capacity INTEGER NOT NULL CHECK (capacity > 0),
   price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
   UNIQUE (activity, date, time)
 );
@@ -27,10 +26,11 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slot ON bookings(slot_id);
 """
 
 
-def _migrate_slots_activity(db):
+def _migrate_slots(db):
     cols = [r["name"] for r in db.execute("PRAGMA table_info(slots)")]
-    if not cols or "activity" in cols:
+    if not cols or ("activity" in cols and "capacity" not in cols):
         return
+    activity = "activity" if "activity" in cols else "'paintball'"
     # Ricostruzione della tabella (UNIQUE non modificabile); FK off per non cancellare le prenotazioni.
     db.execute("PRAGMA foreign_keys = OFF")
     try:
@@ -42,12 +42,11 @@ def _migrate_slots_activity(db):
               activity TEXT NOT NULL DEFAULT 'paintball' CHECK (activity IN ({_ACTIVITIES_SQL})),
               date TEXT NOT NULL,
               time TEXT NOT NULL,
-              capacity INTEGER NOT NULL CHECK (capacity > 0),
               price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
               UNIQUE (activity, date, time)
             );
-            INSERT INTO slots_new (id, activity, date, time, capacity, price_cents)
-              SELECT id, 'paintball', date, time, capacity, price_cents FROM slots;
+            INSERT INTO slots_new (id, activity, date, time, price_cents)
+              SELECT id, {activity}, date, time, price_cents FROM slots;
             DROP TABLE slots;
             ALTER TABLE slots_new RENAME TO slots;
             COMMIT;
@@ -66,6 +65,6 @@ def open_db(file=None):
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode = WAL")
     db.execute("PRAGMA foreign_keys = ON")
-    _migrate_slots_activity(db)
+    _migrate_slots(db)
     db.executescript(SCHEMA)
     return db
