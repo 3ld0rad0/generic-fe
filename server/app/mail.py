@@ -32,16 +32,36 @@ def booking_message(booking, sender, base_url):
     return msg
 
 
+def admin_message(booking, sender, admin_email):
+    """Mail all'admin per una nuova prenotazione."""
+    msg = EmailMessage()
+    msg["Subject"] = f"Nuova prenotazione #{booking['id']}"
+    msg["From"] = sender
+    msg["To"] = admin_email
+    date = "/".join(reversed(booking["date"].split("-")))
+    msg.set_content(
+        f"{ACTIVITY_NAMES.get(booking['activity'], booking['activity'])} - {date} alle {booking['time']}\n"
+        f"Nome: {booking['name']}\n"
+        f"Partecipanti: {booking['players']}\n"
+        f"Telefono: {booking['phone']}\n"
+        f"Email: {booking['email']}\n"
+    )
+    return msg
+
+
 def smtp_mailer_from_env():
-    """Ritorna una funzione `send(booking)`; senza SMTP_HOST le mail vengono solo scritte nel log."""
+    """Ritorna `send(booking)`: conferma al cliente e, se ADMIN_EMAIL è impostata, avviso all'admin.
+
+    Senza SMTP_HOST le mail vengono solo scritte nel log.
+    """
     host = os.environ.get("SMTP_HOST")
     sender = os.environ.get("MAIL_FROM", "no-reply@localhost")
     base_url = os.environ.get("PUBLIC_URL", "http://localhost:5173")
+    admin_email = os.environ.get("ADMIN_EMAIL")
     port = int(os.environ.get("SMTP_PORT", "587"))
     user, password = os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASSWORD")
 
-    def send(booking):
-        msg = booking_message(booking, sender, base_url)
+    def deliver(msg):
         if not host:
             log.warning("SMTP_HOST non impostato, mail non inviata:\n%s", msg)
             return
@@ -52,6 +72,11 @@ def smtp_mailer_from_env():
                     smtp.login(user, password or "")
                 smtp.send_message(msg)
         except Exception:
-            log.exception("Invio mail di conferma fallito (prenotazione %s)", booking.get("id"))
+            log.exception("Invio mail fallito (destinatario %s)", msg["To"])
+
+    def send(booking):
+        deliver(booking_message(booking, sender, base_url))
+        if admin_email:
+            deliver(admin_message(booking, sender, admin_email))
 
     return send

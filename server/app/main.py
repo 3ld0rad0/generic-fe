@@ -171,7 +171,8 @@ def create_app(db, admin_password, secret, static_dir=None, mailer=None):
             background.add_task(
                 mailer,
                 {
-                    "id": cur.lastrowid, "name": name.strip(), "email": email.strip(), "players": players,
+                    "id": cur.lastrowid, "name": name.strip(), "email": email.strip(), "phone": phone.strip(),
+                    "players": players,
                     "activity": slot["activity"], "date": slot["date"], "time": slot["time"],
                     "price_cents": slot["price_cents"], "cancel_token": token,
                 },

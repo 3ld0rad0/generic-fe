@@ -179,3 +179,36 @@ def test_confirmation_mail_text():
     )
     body = msg.get_content()
     assert msg["To"] == "m@x.it" and "https://sito.it/annulla/abc" in body and "01/01/2099" in body
+
+
+def test_admin_notification_mail_and_mailer_sends_both(monkeypatch):
+    from app import mail
+
+    booking = {"id": 3, "name": "Mario", "email": "m@x.it", "phone": "123456", "players": 2,
+               "activity": "arco", "date": "2099-01-01", "time": "10:00", "price_cents": 2500, "cancel_token": "abc"}
+    msg = mail.admin_message(booking, "from@x.it", "admin@x.it")
+    body = msg.get_content()
+    assert msg["To"] == "admin@x.it" and "#3" in msg["Subject"]
+    assert "Telefono: 123456" in body and "Partecipanti: 2" in body and "abc" not in body
+
+    sent = []
+    monkeypatch.setenv("SMTP_HOST", "smtp.test")
+    monkeypatch.setenv("ADMIN_EMAIL", "admin@x.it")
+
+    class FakeSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def starttls(self): pass
+        def login(self, *a): pass
+        def send_message(self, msg): sent.append(msg["To"])
+
+    monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
+    mail.smtp_mailer_from_env()(booking)
+    assert sent == ["m@x.it", "admin@x.it"]
+
+    sent.clear()
+    monkeypatch.delenv("ADMIN_EMAIL")
+    mail.smtp_mailer_from_env()(booking)
+    assert sent == ["m@x.it"]
+
