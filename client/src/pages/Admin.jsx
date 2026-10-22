@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ACTIVITIES, activityBySlug, api, euro, formatShortDate, getToken, setToken, toISO, todayISO } from '../api.js'
-import { Button, Field, Icon, ThemeToggle } from '../ui.jsx'
+import { Button, Field, Icon } from '../ui.jsx'
 
 const WEEKDAYS = [
   ['Lun', 1],
@@ -58,7 +58,6 @@ function Login({ onLogin }) {
       <Link className="back-home" to="/">
         ← Torna al sito
       </Link>
-      <ThemeToggle className="floating" />
       <form onSubmit={submit} className="login-card" noValidate>
         <span className="manager-mark">
           <Icon name="gear" size={30} />
@@ -219,7 +218,6 @@ function Dashboard({ onLogout }) {
           </div>
         </div>
         <div className="head-actions">
-          <ThemeToggle />
           <Button
             variant="ghost"
             onClick={() => {
@@ -455,16 +453,18 @@ function Dashboard({ onLogout }) {
                   </div>
                 </>
               )}
-              <Field label="Ora" type="time" required value={sessionForm.time} onChange={setField('time')} />
-              <Field
-                label="Prezzo per prenotazione (€)"
-                type="number"
-                required
-                min="0"
-                step="0.01"
-                value={sessionForm.price}
-                onChange={setField('price')}
-              />
+              <div className="two-fields">
+                <Field label="Ora" type="time" required value={sessionForm.time} onChange={setField('time')} />
+                <Field
+                  label="Prezzo (€)"
+                  type="number"
+                  required
+                  min="0"
+                  step="0.01"
+                  value={sessionForm.price}
+                  onChange={setField('price')}
+                />
+              </div>
               <Button type="submit" icon="plus" disabled={saving}>
                 Aggiungi turni
               </Button>

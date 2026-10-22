@@ -124,28 +124,6 @@ export function Logo() {
   )
 }
 
-export function ThemeToggle({ className = '' }) {
-  const [theme, setTheme] = useState(() => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'))
-  const toggle = () => {
-    const next = theme === 'light' ? 'dark' : 'light'
-    document.documentElement.dataset.theme = next
-    try {
-      localStorage.setItem('theme', next)
-    } catch {}
-    setTheme(next)
-  }
-  return (
-    <button
-      type="button"
-      className={`theme-toggle ${className}`}
-      aria-label={theme === 'light' ? 'Attiva tema scuro' : 'Attiva tema chiaro'}
-      onClick={toggle}
-    >
-      <Icon name={theme === 'light' ? 'moon' : 'sun'} size={20} />
-    </button>
-  )
-}
-
 export function Button({ children, variant = 'primary', icon, className = '', type = 'button', ...props }) {
   return (
     <button type={type} className={`btn btn-${variant} ${className}`} {...props}>
@@ -203,7 +181,6 @@ function Navbar() {
         <ButtonLink to="/prenota" icon="arrow">
           Prenota
         </ButtonLink>
-        <ThemeToggle />
       </nav>
       <button
         className="menu-button"
