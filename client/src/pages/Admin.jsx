@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ACTIVITIES, activityBySlug, api, euro, formatShortDate, getToken, setToken, toISO, todayISO } from '../api.js'
+import { ACTIVITIES, activityBySlug, api, euro, formatDate, formatShortDate, getToken, setToken, toISO, todayISO } from '../api.js'
 import { Button, Field, Icon } from '../ui.jsx'
 
 const WEEKDAYS = [
@@ -28,6 +28,88 @@ const EMPTY_SESSION = {
   price: '25',
 }
 const activityName = (slug) => activityBySlug(slug)?.name ?? slug
+const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`
+
+function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, selected, onSelect, loading }) {
+  const [year, m] = month
+  const offset = (new Date(year, m, 1).getDay() + 6) % 7
+  const daysInMonth = new Date(year, m + 1, 0).getDate()
+  const label = new Date(year, m, 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+  const byDate = {}
+  for (const s of slots) {
+    const d = (byDate[s.date] ||= { free: 0, booked: 0, closed: 0 })
+    if (bookingBySlot[s.id]) d.booked += 1
+    else if (s.bookable) d.free += 1
+    else d.closed += 1
+  }
+
+  return (
+    <div className="calendar">
+      <div className="calendar-head">
+        <button type="button" aria-label="Mese precedente" onClick={() => onMonthChange(new Date(year, m - 1, 1))}>
+          ‹
+        </button>
+        <h3>{label}</h3>
+        <button type="button" aria-label="Mese successivo" onClick={() => onMonthChange(new Date(year, m + 1, 1))}>
+          ›
+        </button>
+      </div>
+      <div className="calendar-grid" aria-busy={loading}>
+        {WEEKDAYS.map(([name]) => (
+          <span className="weekday" key={name}>
+            {name}
+          </span>
+        ))}
+        {Array.from({ length: offset }, (_, i) => (
+          <span key={`blank-${i}`} />
+        ))}
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const iso = toISO(new Date(year, m, i + 1))
+          const d = byDate[iso]
+          const state = !d
+            ? ''
+            : d.booked && d.free
+              ? 'day-mixed'
+              : d.booked
+                ? 'day-booked'
+                : d.free
+                  ? 'day-available'
+                  : 'day-closed'
+          return (
+            <button
+              type="button"
+              key={iso}
+              disabled={!d}
+              className={`${state} ${selected === iso ? 'selected' : ''} ${iso === today ? 'is-today' : ''}`}
+              aria-pressed={selected === iso}
+              aria-label={d ? `${formatDate(iso)}: ${d.free} libere, ${d.booked} prenotate` : formatDate(iso)}
+              onClick={() => onSelect(iso)}
+            >
+              {i + 1}
+              {d && (d.free > 0 || d.booked > 0) && (
+                <span className="day-dots" aria-hidden="true">
+                  {d.free > 0 && <i className="dot-free" />}
+                  {d.booked > 0 && <i className="dot-booked" />}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+      <div className="calendar-legend">
+        <span>
+          <i /> Libera
+        </span>
+        <span>
+          <i className="dot-booked" /> Prenotata
+        </span>
+        <span>
+          <i className="dot-closed" /> Chiusa o passata
+        </span>
+      </div>
+    </div>
+  )
+}
 
 function expandDates(start, end, days) {
   if (!end) return [start]
@@ -105,6 +187,8 @@ function Dashboard({ onLogout }) {
   const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
   const [saving, setSaving] = useState(false)
   const [today] = useState(todayISO)
+  const [calMonth, setCalMonth] = useState(() => [Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1])
+  const [calDate, setCalDate] = useState(today)
   const [todayLabel] = useState(() =>
     new Date().toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' }),
   )
@@ -120,7 +204,11 @@ function Dashboard({ onLogout }) {
   )
 
   // Lo storico (date passate) si scarica solo quando un filtro lo richiede.
-  const needsHistory = bookingPeriod !== 'upcoming' || slotPeriod !== 'upcoming' || (!!slotDate && slotDate < today)
+  const needsHistory =
+    bookingPeriod !== 'upcoming' ||
+    slotPeriod !== 'upcoming' ||
+    (!!slotDate && slotDate < today) ||
+    (tab === 'calendar' && monthKey(calMonth[0], calMonth[1]) < today.slice(0, 7))
   const from = needsHistory ? '1970-01-01' : today
 
   const load = useCallback(
@@ -212,11 +300,15 @@ function Dashboard({ onLogout }) {
   )
   const upcoming = (bookings ?? []).filter((b) => b.date >= today)
   const bookedBySlot = {}
+  const bookingBySlot = {}
   for (const b of bookings ?? []) {
     const t = (bookedBySlot[b.slot_id] ||= { bookings: 0, players: 0 })
     t.bookings += 1
     t.players += b.players
+    bookingBySlot[b.slot_id] = b
   }
+  const calendarSlots = (slots ?? []).filter((s) => !activityFilter || s.activity === activityFilter)
+  const daySlots = calendarSlots.filter((s) => s.date === calDate)
 
   return (
     <main className="dashboard">
@@ -316,7 +408,79 @@ function Dashboard({ onLogout }) {
           >
             Sessioni <span>{slots?.length ?? 0}</span>
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'calendar'}
+            className={tab === 'calendar' ? 'active' : ''}
+            onClick={() => setTab('calendar')}
+          >
+            Calendario
+          </button>
         </div>
+
+        {tab === 'calendar' && (
+          <section className="calendar-layout">
+            <AdminCalendar
+              slots={calendarSlots}
+              bookingBySlot={bookingBySlot}
+              today={today}
+              month={calMonth}
+              onMonthChange={(d) => setCalMonth([d.getFullYear(), d.getMonth()])}
+              selected={calDate}
+              onSelect={setCalDate}
+              loading={loading}
+            />
+            <div className="admin-panel day-panel">
+              <div>
+                <h2>{calDate ? formatDate(calDate) : 'Dettaglio giorno'}</h2>
+                <p>Sessioni del giorno selezionato e chi le ha prenotate.</p>
+              </div>
+              {loading ? (
+                <div className="state-card">
+                  <span className="spinner" />
+                  <h4>Caricamento...</h4>
+                </div>
+              ) : daySlots.length === 0 ? (
+                <div className="admin-empty">
+                  <Icon name="calendar" size={34} />
+                  <h3>Nessuna sessione</h3>
+                  <p>Scegli un giorno evidenziato nel calendario.</p>
+                </div>
+              ) : (
+                <div className="day-sessions">
+                  {daySlots.map((s) => {
+                    const booking = bookingBySlot[s.id]
+                    const status = booking ? 'booked' : s.bookable ? 'free' : 'closed'
+                    return (
+                      <article key={s.id}>
+                        <div className="day-time">
+                          <strong>{s.time}</strong>
+                          <small>{activityName(s.activity)}</small>
+                        </div>
+                        <div className="booking-info">
+                          {booking ? (
+                            <>
+                              <strong>{booking.name}</strong>
+                              <small>
+                                {booking.phone} · {booking.players} {booking.players === 1 ? 'partecipante' : 'partecipanti'}
+                              </small>
+                            </>
+                          ) : (
+                            <small>{euro(s.price_cents)}</small>
+                          )}
+                        </div>
+                        <span className={`status-pill ${status}`}>
+                          {{ booked: 'Prenotata', free: 'Libera', closed: 'Chiusa' }[status]}
+                        </span>
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {tab === 'bookings' && (
           <section className="admin-panel">

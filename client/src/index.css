@@ -637,3 +637,39 @@ td strong { color: white; }
 [data-theme='light'] .session-list article:hover { border-color: var(--orange); }
 [data-theme='light'] .socials a:hover { color: var(--orange); border-color: var(--orange); }
 [data-theme='light'] .delete:hover { color: var(--orange); background: rgba(215,25,32,.08); border-color: rgba(215,25,32,.3); }
+
+/* Admin: calendario */
+.calendar-layout { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; margin-top: 24px; align-items: start; }
+.calendar-layout .admin-panel { margin-top: 0; }
+.calendar-layout .calendar { padding: 24px; }
+.calendar-grid button.day-booked:not(.selected) { background: rgba(255,90,31,.16); color: #ffd2c2; box-shadow: inset 0 0 0 1px rgba(255,90,31,.35); }
+.calendar-grid button.day-mixed:not(.selected) { background: linear-gradient(135deg, rgba(46,204,113,.2) 50%, rgba(255,90,31,.2) 50%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+.calendar-grid button.day-closed:not(.selected) { color: #777; background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.calendar-grid button.is-today { text-decoration: underline; text-underline-offset: 3px; font-weight: 700; }
+.day-dots { position: absolute; bottom: 5px; display: flex; gap: 3px; }
+.day-dots i { width: 5px; height: 5px; border-radius: 50%; }
+.day-dots .dot-free { background: var(--green); }
+.day-dots .dot-booked, .calendar-legend .dot-booked { background: var(--orange); }
+.calendar-legend .dot-closed { background: #777; }
+.calendar-grid button.selected .day-dots i { background: #fff; }
+.day-panel { padding: 24px; }
+.day-sessions article { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 14px; margin-top: 10px; padding: 12px 14px; background: #202020; border: 1px solid #303030; border-radius: 7px; }
+.day-time, .booking-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.day-time strong { font: 700 20px var(--heading); }
+.day-time small, .booking-info small { color: #777; font-size: 9px; }
+.booking-info strong { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-pill { padding: 4px 9px; border-radius: 5px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.status-pill.free { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.status-pill.booked { color: var(--orange); background: color-mix(in srgb, var(--orange) 14%, transparent); }
+.status-pill.closed { color: #888; background: rgba(128,128,128,.14); }
+[data-theme='light'] .calendar-grid button.selected:hover:not(:disabled) { background: var(--orange); color: #fff; }
+[data-theme='light'] .calendar-grid button.day-booked:not(.selected) { background: rgba(215,25,32,.12); color: #a30f16; box-shadow: inset 0 0 0 1px rgba(215,25,32,.3); }
+[data-theme='light'] .calendar-grid button.day-mixed:not(.selected) { background: linear-gradient(135deg, rgba(46,204,113,.22) 50%, rgba(215,25,32,.16) 50%); color: #222; box-shadow: inset 0 0 0 1px #d8d8dd; }
+[data-theme='light'] .calendar-grid button.day-closed:not(.selected) { color: #a0a0a8; }
+[data-theme='light'] .day-sessions article { background: #fff; border-color: #dcdce0; }
+@media (max-width: 1000px) {
+  .calendar-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 800px) {
+  .day-sessions article { grid-template-columns: 70px minmax(0, 1fr) auto; gap: 10px; }
+}
