@@ -20,7 +20,14 @@ from .db import ACTIVITIES, open_db
 
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 TIME_RE = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
-EMAIL_RE = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+EMAIL_RE = re.compile(
+    r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+    r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}"
+)
+# Inizia con una lettera: esclude anche i prefissi =,+,-,@ delle formule nei fogli di calcolo.
+NAME_RE = re.compile(r"[^\W\d_](?:[^\W\d_]|[ '’.\-])+")
+PHONE_RE = re.compile(r"\+?[0-9 ().\-]+")
+PHONE_MIN_DIGITS, PHONE_MAX_DIGITS = 6, 15
 
 MAX_BODY_BYTES = 10 * 1024
 MAX_BULK_DATES = 366
@@ -77,6 +84,28 @@ def _slot_fields(b):
 
 def _valid_date(date):
     return _is_str(date) and DATE_RE.fullmatch(date)
+
+
+def _clean_name(v):
+    name = " ".join(v.split()) if _is_str(v) else ""
+    return name if 2 <= len(name) <= 100 and NAME_RE.fullmatch(name) else None
+
+
+def _clean_email(v):
+    email = v.strip().lower() if _is_str(v) else ""
+    local = email.partition("@")[0]
+    return email if len(email) <= 254 and len(local) <= 64 and EMAIL_RE.fullmatch(email) else None
+
+
+def _clean_phone(v):
+    phone = v.strip() if _is_str(v) else ""
+    if len(phone) > 30 or not PHONE_RE.fullmatch(phone):
+        return None
+    if "+" in phone[1:] or phone.count("(") != phone.count(")"):
+        return None
+    compact = re.sub(r"[ ().\-]", "", phone)
+    digits = compact.lstrip("+")
+    return compact if PHONE_MIN_DIGITS <= len(digits) <= PHONE_MAX_DIGITS else None
 
 
 def create_app(db, admin_password, secret, static_dir=None):
@@ -156,16 +185,15 @@ def create_app(db, admin_password, secret, static_dir=None):
             recent_bookings[ip] = recent
             raise HTTPException(429, "Troppe prenotazioni da questa connessione, riprova più tardi")
         b = body or {}
-        slot_id, name, email, phone, players = (
-            b.get("slotId"), b.get("name"), b.get("email"), b.get("phone"), b.get("players"),
-        )
+        slot_id, players = b.get("slotId"), b.get("players")
+        name, email, phone = _clean_name(b.get("name")), _clean_email(b.get("email")), _clean_phone(b.get("phone"))
         if not _is_pos_int(slot_id):
             raise _bad("Sessione non valida")
-        if not _is_str(name) or not name.strip() or len(name) > 100:
+        if name is None:
             raise _bad("Nome non valido")
-        if not _is_str(email) or not EMAIL_RE.fullmatch(email) or len(email) > 200:
+        if email is None:
             raise _bad("Email non valida")
-        if not _is_str(phone) or len(phone.strip()) < 5 or len(phone) > 30:
+        if phone is None:
             raise _bad("Telefono non valido")
         if not _is_pos_int(players) or players > 100:
             raise _bad("Numero partecipanti non valido")
@@ -179,7 +207,7 @@ def create_app(db, admin_password, secret, static_dir=None):
             active = db.execute(
                 """SELECT COUNT(*) FROM bookings b JOIN slots s ON s.id = b.slot_id
                    WHERE s.date >= ? AND (lower(b.email) = ? OR replace(b.phone, ' ', '') = ?)""",
-                (_today(), email.strip().lower(), phone.replace(" ", "")),
+                (_today(), email, phone),
             ).fetchone()[0]
             if active >= MAX_ACTIVE_PER_CONTACT:
                 raise HTTPException(
@@ -187,7 +215,7 @@ def create_app(db, admin_password, secret, static_dir=None):
                 )
             cur = db.execute(
                 "INSERT INTO bookings (slot_id, name, email, phone, players) VALUES (?, ?, ?, ?, ?)",
-                (slot_id, name.strip(), email.strip(), phone.strip(), players),
+                (slot_id, name, email, phone, players),
             )
         recent_bookings[ip] = [*recent, now_s]
         return {"id": cur.lastrowid}

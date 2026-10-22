@@ -69,3 +69,28 @@ export const toISO = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
 export const todayISO = () => toISO(new Date())
+
+// Regole allineate a server/app/main.py: ogni validatore ritorna il valore normalizzato o null.
+const NAME_RE = /^\p{L}[\p{L} '’.-]+$/u
+const EMAIL_RE =
+  /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}$/
+const PHONE_RE = /^\+?[0-9 ().-]+$/
+
+export function cleanName(v) {
+  const name = v.trim().replace(/\s+/g, ' ')
+  return name.length >= 2 && name.length <= 100 && NAME_RE.test(name) ? name : null
+}
+
+export function cleanEmail(v) {
+  const email = v.trim().toLowerCase()
+  return email.length <= 254 && email.split('@')[0].length <= 64 && EMAIL_RE.test(email) ? email : null
+}
+
+export function cleanPhone(v) {
+  const phone = v.trim()
+  if (phone.length > 30 || !PHONE_RE.test(phone) || phone.indexOf('+', 1) !== -1) return null
+  if (phone.split('(').length !== phone.split(')').length) return null
+  const compact = phone.replace(/[ ().-]/g, '')
+  const digits = compact.replace(/^\+/, '').length
+  return digits >= 6 && digits <= 15 ? compact : null
+}

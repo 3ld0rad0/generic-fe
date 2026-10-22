@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ACTIVITIES, activityBySlug, api, euro, formatDate, toISO, todayISO } from '../api.js'
+import { ACTIVITIES, activityBySlug, api, cleanEmail, cleanName, cleanPhone, euro, formatDate, toISO, todayISO } from '../api.js'
 import { Button, ButtonLink, Field, Icon } from '../ui.jsx'
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const EMPTY_FORM = { name: '', email: '', phone: '' }
 const MAX_PLAYERS = 100
 
@@ -224,11 +223,13 @@ export default function Book() {
 
   const submit = async (e) => {
     e.preventDefault()
+    const name = cleanName(form.name)
+    const email = cleanEmail(form.email)
+    const phone = cleanPhone(form.phone)
     const next = {}
-    if (!form.name.trim()) next.name = 'Inserisci il tuo nome e cognome'
-    if (!EMAIL_RE.test(form.email.trim())) next.email = 'Inserisci un indirizzo email valido'
-    const phone = form.phone.trim()
-    if (phone.length < 5 || phone.length > 30) next.phone = 'Inserisci un numero di telefono valido'
+    if (!name) next.name = 'Inserisci nome e cognome (solo lettere, spazi, apostrofi e trattini)'
+    if (!email) next.email = 'Inserisci un indirizzo email valido'
+    if (!phone) next.phone = 'Inserisci un numero valido (6-15 cifre, es. +39 333 123 4567)'
     setErrors(next)
     if (Object.keys(next).length) return
 
@@ -237,9 +238,9 @@ export default function Book() {
     try {
       const { id } = await api('/bookings', {
         method: 'POST',
-        body: { slotId: selectedSlot.id, name: form.name.trim(), email: form.email.trim(), phone, players },
+        body: { slotId: selectedSlot.id, name, email, phone, players },
       })
-      setConfirmed({ id, slot: selectedSlot, players, name: form.name.trim() })
+      setConfirmed({ id, slot: selectedSlot, players, name })
       setStep(3)
       load()
     } catch (err) {
@@ -404,7 +405,8 @@ export default function Book() {
                   type="email"
                   placeholder="nome@email.it"
                   autoComplete="email"
-                  maxLength={200}
+                  inputMode="email"
+                  maxLength={254}
                   value={form.email}
                   error={errors.email}
                   onChange={setField('email')}
@@ -414,6 +416,7 @@ export default function Book() {
                   type="tel"
                   placeholder="+39 333 000 0000"
                   autoComplete="tel"
+                  inputMode="tel"
                   maxLength={30}
                   value={form.phone}
                   error={errors.phone}

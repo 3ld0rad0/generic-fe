@@ -178,8 +178,58 @@ def test_bookings_per_ip_are_limited(api):
     for i in range(main.BOOKING_IP_MAX):
         r = api.post(
             "/api/bookings",
-            json={"slotId": s["id"], "players": 1, "name": "A", "email": f"a{i}@x.it", "phone": f"55500{i}00"},
+            json={"slotId": s["id"], "players": 1, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00"},
         )
         assert r.status_code == 201
-    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, "name": "A", "email": "z@x.it", "phone": "5559999"})
+    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, "name": "Anna", "email": "z@x.it", "phone": "5559999"})
     assert r.status_code == 429
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("name", "A"),
+        ("name", "   "),
+        ("name", "=cmd|' /C calc'!A0"),
+        ("name", "<script>alert(1)</script>"),
+        ("name", "Mario123"),
+        ("name", "Mario\nRossi\x00"),
+        ("name", "M" * 101),
+        ("name", 42),
+        ("email", "mario"),
+        ("email", "mario@x"),
+        ("email", "mario@@x.it"),
+        ("email", "ma rio@x.it"),
+        ("email", "mario..r@x.it"),
+        ("email", ".mario@x.it"),
+        ("email", "mario@-x.it"),
+        ("email", "mario@x.i"),
+        ("email", "a" * 65 + "@x.it"),
+        ("email", None),
+        ("phone", "12345"),
+        ("phone", "1" * 16),
+        ("phone", "abc123456"),
+        ("phone", "333+123456"),
+        ("phone", "(333 123456"),
+        ("phone", "333;DROP TABLE"),
+        ("phone", 3331234567),
+    ],
+)
+def test_invalid_contact_fields_are_rejected(api, field, value):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, field: value}})
+    assert r.status_code == 400
+
+
+def test_contact_fields_are_normalized_before_saving(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    person = {"name": "  Jean-Luc   D’Angelo Jr. ", "email": " Mario.Rossi+test@Example.IT ", "phone": " +39 (333) 123-45.67 "}
+    assert api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **person}).status_code == 201
+    saved = api.get("/api/admin/bookings", headers=api.admin).json()[0]
+    assert (saved["name"], saved["email"], saved["phone"]) == ("Jean-Luc D’Angelo Jr.", "mario.rossi+test@example.it", "+393331234567")
+
+
+def test_accented_names_are_accepted(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, "name": "Niccolò Dell'Orò"}})
+    assert r.status_code == 201
