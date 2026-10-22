@@ -1,11 +1,13 @@
+import logging
 import os
 import re
 import secrets
 import sqlite3
 import threading
 import time
+import unicodedata
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -14,9 +16,10 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 
 from .auth import Auth
-from .db import ACTIVITIES, open_db
+from .db import ACTIVITIES, normalize_phone, open_db
 
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 TIME_RE = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
@@ -24,27 +27,29 @@ EMAIL_RE = re.compile(
     r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
     r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}"
 )
-# Inizia con una lettera: esclude anche i prefissi =,+,-,@ delle formule nei fogli di calcolo.
-NAME_RE = re.compile(r"[^\W\d_](?:[^\W\d_]|[ '’.\-])+")
 PHONE_RE = re.compile(r"\+?[0-9 ().\-]+")
 PHONE_MIN_DIGITS, PHONE_MAX_DIGITS = 6, 15
 
 MAX_BODY_BYTES = 10 * 1024
 MAX_BULK_DATES = 366
+MAX_SQL_INT = 2**63 - 1
+MAX_PRICE_CENTS = 1_000_000
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_S = 5 * 60
 BOOKING_IP_MAX = 3
 BOOKING_IP_WINDOW_S = 60 * 60
+RATE_PRUNE_EVERY_S = 60
 MAX_ACTIVE_PER_CONTACT = 3
 BOOKING_CUTOFF = timedelta(hours=1)
 # Gli orari dei turni sono locali al poligono.
 TZ = ZoneInfo(os.environ.get("APP_TZ", "Europe/Rome"))
 
 SLOT_COLUMNS = "SELECT id, activity, date, time, price_cents FROM slots"
+logger = logging.getLogger("uvicorn.error")
 
 
 def _is_pos_int(n):
-    return type(n) is int and n > 0
+    return type(n) is int and 0 < n <= MAX_SQL_INT
 
 
 def _is_str(v):
@@ -64,7 +69,8 @@ def _starts_at(slot):
 
 
 def _bookable(slot):
-    return _starts_at(slot) - _now() >= BOOKING_CUTOFF
+    # In UTC: tra datetime con lo stesso tzinfo Python ignora il cambio d'ora.
+    return _starts_at(slot).astimezone(timezone.utc) - _now().astimezone(timezone.utc) >= BOOKING_CUTOFF
 
 
 def _bad(msg):
@@ -77,18 +83,29 @@ def _slot_fields(b):
         raise _bad("Attività non valida")
     if not _is_str(time_) or not TIME_RE.fullmatch(time_):
         raise _bad("Ora non valida")
-    if type(price) is not int or price < 0:
+    if type(price) is not int or not 0 <= price <= MAX_PRICE_CENTS:
         raise _bad("Prezzo non valido")
     return activity, time_, price
 
 
 def _valid_date(date):
-    return _is_str(date) and DATE_RE.fullmatch(date)
+    if not _is_str(date) or not DATE_RE.fullmatch(date):
+        return False
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
 
 
 def _clean_name(v):
-    name = " ".join(v.split()) if _is_str(v) else ""
-    return name if 2 <= len(name) <= 100 and NAME_RE.fullmatch(name) else None
+    name = " ".join(unicodedata.normalize("NFC", v).split()) if _is_str(v) else ""
+    # Inizia con una lettera: esclude anche i prefissi =,+,-,@ delle formule nei fogli di calcolo.
+    if not 2 <= len(name) <= 100 or not name[0].isalpha():
+        return None
+    # Segni combinanti (Mn, Mc): vocali e diacritici di scritture come devanagari e arabo.
+    allowed = all(c.isalpha() or c in " '’.-" or unicodedata.category(c) in ("Mn", "Mc") for c in name)
+    return name if allowed else None
 
 
 def _clean_email(v):
@@ -104,16 +121,40 @@ def _clean_phone(v):
     if "+" in phone[1:] or phone.count("(") != phone.count(")"):
         return None
     compact = re.sub(r"[ ().\-]", "", phone)
-    digits = compact.lstrip("+")
-    return compact if PHONE_MIN_DIGITS <= len(digits) <= PHONE_MAX_DIGITS else None
+    digits = compact[2:] if compact.startswith("00") else compact.lstrip("+")
+    return normalize_phone(compact) if PHONE_MIN_DIGITS <= len(digits) <= PHONE_MAX_DIGITS else None
+
+
+class _ExpiringCounters(dict):
+    """Contatori per IP: le voci scadute vengono rimosse al massimo ogni RATE_PRUNE_EVERY_S secondi."""
+
+    def __init__(self, expired):
+        super().__init__()
+        self._expired = expired
+        self._pruned_at = 0.0
+
+    def prune(self, now):
+        if now - self._pruned_at < RATE_PRUNE_EVERY_S:
+            return
+        self._pruned_at = now
+        for key in [k for k, v in self.items() if self._expired(v, now)]:
+            del self[key]
 
 
 def create_app(db, admin_password, secret, static_dir=None):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    # Conta i byte ricevuti: copre anche i body chunked, che non hanno Content-Length.
+    app.add_middleware(RequestBodyLimitMiddleware, max_body_size=MAX_BODY_BYTES)
     auth = Auth(admin_password, secret)
     lock = threading.Lock()
-    failures: dict[str, tuple[int, float]] = {}
-    recent_bookings: dict[str, list[float]] = {}
+    login_lock = threading.Lock()
+    failures = _ExpiringCounters(lambda entry, now: entry[1] <= now)
+    recent_bookings = _ExpiringCounters(lambda times, now: not times or times[-1] <= now - BOOKING_IP_WINDOW_S)
+    path = db.execute("PRAGMA database_list").fetchone()[2]
+    # In WAL una connessione di sola lettura non attende le scritture (né eventuali lock esterni).
+    reader = sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True, check_same_thread=False) if path else db
+    reader.row_factory = sqlite3.Row
+    read_lock = threading.Lock() if path else lock
 
     @contextmanager
     def tx():
@@ -124,7 +165,9 @@ def create_app(db, admin_password, secret, static_dir=None):
                 yield
                 db.execute("COMMIT")
             except BaseException:
-                db.execute("ROLLBACK")
+                # Alcuni errori (es. disco pieno) hanno già annullato la transazione.
+                if db.in_transaction:
+                    db.execute("ROLLBACK")
                 raise
 
     @app.middleware("http")
@@ -142,6 +185,12 @@ def create_app(db, admin_password, secret, static_dir=None):
     async def validation_error(request, exc):
         return JSONResponse({"error": "Richiesta non valida"}, status_code=400)
 
+    @app.exception_handler(sqlite3.Error)
+    async def db_error(request, exc):
+        # Gestito qui e non dal gestore generico, che fa chiudere la connessione keep-alive.
+        logger.error("Errore del database", exc_info=exc)
+        return JSONResponse({"error": "Errore interno"}, status_code=500)
+
     @app.exception_handler(Exception)
     async def unhandled_error(request, exc):
         return JSONResponse({"error": "Errore interno"}, status_code=500)
@@ -149,15 +198,18 @@ def create_app(db, admin_password, secret, static_dir=None):
     @app.post("/api/admin/login")
     def login(request: Request, body: dict[str, Any] | None = Body(default=None)):
         ip = request.client.host if request.client else "unknown"
-        count, until = failures.get(ip, (0, 0.0))
-        active = until > time.time()
-        if active and count >= LOGIN_MAX_FAILURES:
-            raise HTTPException(429, "Troppi tentativi, riprova tra poco")
-        token = auth.login((body or {}).get("password"))
-        if not token:
-            failures[ip] = ((count + 1) if active else 1, time.time() + LOGIN_WINDOW_S)
-            raise HTTPException(401, "Password errata")
-        failures.pop(ip, None)
+        with login_lock:
+            now = time.monotonic()
+            failures.prune(now)
+            count, until = failures.get(ip, (0, 0.0))
+            active = until > now
+            if active and count >= LOGIN_MAX_FAILURES:
+                raise HTTPException(429, "Troppi tentativi, riprova tra poco")
+            token = auth.login((body or {}).get("password"))
+            if not token:
+                failures[ip] = ((count + 1) if active else 1, now + LOGIN_WINDOW_S)
+                raise HTTPException(401, "Password errata")
+            failures.pop(ip, None)
         return {"token": token}
 
     # Pubblico: slot futuri
@@ -169,21 +221,21 @@ def create_app(db, admin_password, secret, static_dir=None):
         activity = request.query_params.get("activity")
         if activity is not None and activity not in ACTIVITIES:
             raise _bad("Attività non valida")
-        with lock:
-            rows = db.execute(
-                f"{SLOT_COLUMNS} WHERE date >= ? AND (? IS NULL OR activity = ?) ORDER BY date, time, activity",
+        with read_lock:
+            rows = reader.execute(
+                "SELECT id, activity, date, time, price_cents,"
+                " EXISTS(SELECT 1 FROM bookings b WHERE b.slot_id = slots.id) AS booked FROM slots"
+                " WHERE date >= ? AND (? IS NULL OR activity = ?) ORDER BY date, time, activity",
                 (from_, activity, activity),
             ).fetchall()
-        return [{**dict(r), "bookable": _bookable(r)} for r in rows]
+        # Serializzata qui, nel threadpool: con liste lunghe non blocca l'event loop.
+        return JSONResponse(
+            [{k: r[k] for k in r.keys() if k != "booked"} | {"bookable": not r["booked"] and _bookable(r)} for r in rows]
+        )
 
     @app.post("/api/bookings", status_code=201)
     def create_booking(request: Request, body: dict[str, Any] | None = Body(default=None)):
         ip = request.client.host if request.client else "unknown"
-        now_s = time.time()
-        recent = [t for t in recent_bookings.get(ip, []) if t > now_s - BOOKING_IP_WINDOW_S]
-        if len(recent) >= BOOKING_IP_MAX:
-            recent_bookings[ip] = recent
-            raise HTTPException(429, "Troppe prenotazioni da questa connessione, riprova più tardi")
         b = body or {}
         slot_id, players = b.get("slotId"), b.get("players")
         name, email, phone = _clean_name(b.get("name")), _clean_email(b.get("email")), _clean_phone(b.get("phone"))
@@ -202,8 +254,22 @@ def create_app(db, admin_password, secret, static_dir=None):
             slot = db.execute(f"{SLOT_COLUMNS} WHERE id = ?", (slot_id,)).fetchone()
             if slot is None:
                 raise HTTPException(404, "Sessione non trovata")
+            taken = db.execute("SELECT id, name, email, phone, players FROM bookings WHERE slot_id = ?", (slot_id,)).fetchone()
+            # Stessa richiesta ripetuta (es. retry dopo una risposta persa): restituisce la prenotazione esistente.
+            if taken and (taken["name"], taken["email"], taken["phone"], taken["players"]) == (name, email, phone, players):
+                return JSONResponse({"id": taken["id"]})
             if not _bookable(slot):
                 raise _bad("Prenotazioni chiuse: la sessione inizia tra meno di un'ora o è già passata")
+            if taken:
+                raise HTTPException(409, "Sessione già prenotata: scegline un'altra")
+            # Controllo e aggiornamento del limite per IP nella transazione: atomici rispetto alle richieste parallele.
+            # Orologio monotono: quello di sistema può tornare indietro (es. sincronizzazione NTP).
+            now_s = time.monotonic()
+            recent_bookings.prune(now_s)
+            recent = [t for t in recent_bookings.get(ip, []) if t > now_s - BOOKING_IP_WINDOW_S]
+            if len(recent) >= BOOKING_IP_MAX:
+                recent_bookings[ip] = recent
+                raise HTTPException(429, "Troppe prenotazioni da questa connessione, riprova più tardi")
             active = db.execute(
                 """SELECT COUNT(*) FROM bookings b JOIN slots s ON s.id = b.slot_id
                    WHERE s.date >= ? AND (lower(b.email) = ? OR replace(b.phone, ' ', '') = ?)""",
@@ -217,22 +283,29 @@ def create_app(db, admin_password, secret, static_dir=None):
                 "INSERT INTO bookings (slot_id, name, email, phone, players) VALUES (?, ?, ?, ?, ?)",
                 (slot_id, name, email, phone, players),
             )
-        recent_bookings[ip] = [*recent, now_s]
+            recent_bookings[ip] = [*recent, now_s]
         return {"id": cur.lastrowid}
 
     @app.get("/api/admin/bookings", dependencies=[Depends(auth.require_admin)])
-    def admin_bookings():
-        with lock:
-            rows = db.execute(
+    def admin_bookings(request: Request):
+        from_ = request.query_params.get("from")
+        if from_ is not None and not _valid_date(from_):
+            raise _bad("Data non valida")
+        with read_lock:
+            rows = reader.execute(
                 """SELECT b.id, b.name, b.email, b.phone, b.players, b.created_at,
                           s.id AS slot_id, s.activity, s.date, s.time
                    FROM bookings b JOIN slots s ON s.id = b.slot_id
-                   ORDER BY s.date, s.time, s.activity, b.id"""
+                   WHERE ? IS NULL OR s.date >= ?
+                   ORDER BY s.date, s.time, s.activity, b.id""",
+                (from_, from_),
             ).fetchall()
-        return [dict(r) for r in rows]
+        return JSONResponse([dict(r) for r in rows])
 
     @app.delete("/api/admin/bookings/{booking_id}", status_code=204, dependencies=[Depends(auth.require_admin)])
     def delete_booking(booking_id: int):
+        if not _is_pos_int(booking_id):
+            raise HTTPException(404, "Prenotazione non trovata")
         with lock:
             cur = db.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
         if not cur.rowcount:
@@ -277,6 +350,8 @@ def create_app(db, admin_password, secret, static_dir=None):
 
     @app.delete("/api/admin/slots/{slot_id}", status_code=204, dependencies=[Depends(auth.require_admin)])
     def delete_slot(slot_id: int):
+        if not _is_pos_int(slot_id):
+            raise HTTPException(404, "Sessione non trovata")
         with lock:
             cur = db.execute("DELETE FROM slots WHERE id = ?", (slot_id,))
         if not cur.rowcount:

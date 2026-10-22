@@ -24,13 +24,19 @@ def test_admin_routes_require_auth_and_wrong_password_is_rejected(api):
     assert api.post("/api/admin/login", json={"password": "x"}).status_code == 401
 
 
-def test_players_is_informative_and_slot_has_no_seat_limit(api):
+def test_slot_accepts_a_single_booking_until_it_is_freed(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    book = lambda n: api.post("/api/bookings", json={"slotId": s["id"], "players": n, **PERSON}).status_code
-    assert book(40) == 201
-    assert book(40) == 201
+    book = lambda **p: api.post("/api/bookings", json={"slotId": s["id"], "players": 40, **{**PERSON, **p}}).status_code
     assert api.get("/api/slots").json()[0].keys() == {"id", "activity", "date", "time", "price_cents", "bookable"}
-    assert [b["players"] for b in api.get("/api/admin/bookings", headers=api.admin).json()] == [40, 40]
+    assert api.get("/api/slots").json()[0]["bookable"] is True
+    assert book() == 201
+    assert api.get("/api/slots").json()[0]["bookable"] is False
+    assert book(email="altro@x.it", phone="999888777") == 409
+    assert [b["players"] for b in api.get("/api/admin/bookings", headers=api.admin).json()] == [40]
+
+    api.delete("/api/admin/bookings/1", headers=api.admin)
+    assert api.get("/api/slots").json()[0]["bookable"] is True
+    assert book(email="altro@x.it", phone="999888777") == 201
 
 
 def test_validation_and_duplicate_slots(api):
@@ -105,6 +111,7 @@ def test_legacy_db_is_migrated_keeping_bookings(tmp_path):
     db = open_db(path)
     assert db.execute("SELECT activity FROM slots").fetchone()[0] == "paintball"
     assert db.execute("SELECT COUNT(*) FROM bookings").fetchone()[0] == 1
+    assert db.execute("SELECT phone FROM bookings").fetchone()[0] == "+39123456"
     assert "capacity" not in [r[1] for r in db.execute("PRAGMA table_info(slots)")]
 
 
@@ -152,8 +159,11 @@ def test_booking_closes_one_hour_before_the_slot(api, monkeypatch):
 
 def _booker(api, monkeypatch):
     monkeypatch.setattr(main, "BOOKING_IP_MAX", 100)
-    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    return lambda **p: api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, **p}}).status_code
+    bulk = {k: v for k, v in SLOT.items() if k != "date"}
+    dates = [f"2099-01-{d:02d}" for d in range(1, 11)]
+    api.post("/api/admin/slots/bulk", json={**bulk, "dates": dates}, headers=api.admin)
+    free = iter(s["id"] for s in api.get("/api/slots").json())
+    return lambda **p: api.post("/api/bookings", json={"slotId": next(free), "players": 1, **{**PERSON, **p}}).status_code
 
 
 def test_active_bookings_per_email_are_limited_and_deleting_frees_a_place(api, monkeypatch):
@@ -174,14 +184,16 @@ def test_active_bookings_per_phone_are_limited_ignoring_spaces(api, monkeypatch)
 
 
 def test_bookings_per_ip_are_limited(api):
-    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    bulk = {k: v for k, v in SLOT.items() if k != "date"}
+    api.post("/api/admin/slots/bulk", json={**bulk, "dates": [f"2099-01-0{d}" for d in range(1, 6)]}, headers=api.admin)
+    ids = [s["id"] for s in api.get("/api/slots").json()]
     for i in range(main.BOOKING_IP_MAX):
         r = api.post(
             "/api/bookings",
-            json={"slotId": s["id"], "players": 1, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00"},
+            json={"slotId": ids[i], "players": 1, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00"},
         )
         assert r.status_code == 201
-    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, "name": "Anna", "email": "z@x.it", "phone": "5559999"})
+    r = api.post("/api/bookings", json={"slotId": ids[-1], "players": 1, "name": "Anna", "email": "z@x.it", "phone": "5559999"})
     assert r.status_code == 429
 
 
@@ -233,3 +245,52 @@ def test_accented_names_are_accepted(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
     r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, "name": "Niccolò Dell'Orò"}})
     assert r.status_code == 201
+
+
+def test_names_with_combining_marks_are_stored_in_nfc(api):
+    import unicodedata
+
+    for k, name in enumerate((unicodedata.normalize("NFD", "Niccolò Citrò"), "देव शर्मा")):
+        s = api.post("/api/admin/slots", json={**SLOT, "date": f"2099-03-0{k + 1}"}, headers=api.admin).json()
+        assert api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, "name": name}}).status_code == 201
+    names = [b["name"] for b in api.get("/api/admin/bookings", headers=api.admin).json()]
+    assert "Niccolò Citrò" in names
+
+
+def test_identical_retry_returns_the_existing_booking(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    body = {"slotId": s["id"], "players": 2, **PERSON}
+    first = api.post("/api/bookings", json=body)
+    retry = api.post("/api/bookings", json=body)
+    assert (first.status_code, retry.status_code) == (201, 200) and retry.json() == first.json()
+    assert api.post("/api/bookings", json={**body, "players": 3}).status_code == 409
+    assert len(api.get("/api/admin/bookings", headers=api.admin).json()) == 1
+
+
+def test_phone_prefixes_identify_the_same_contact(monkeypatch, api):
+    monkeypatch.setattr(main, "BOOKING_IP_MAX", 100)
+    bulk = {k: v for k, v in SLOT.items() if k != "date"}
+    api.post("/api/admin/slots/bulk", json={**bulk, "dates": [f"2099-01-0{d}" for d in range(1, 5)]}, headers=api.admin)
+    ids = [s["id"] for s in api.get("/api/slots").json()]
+    phones = ["333 123 4567", "+39 3331234567", "0039 333 1234567", "(333) 1234567"]
+    codes = [api.post("/api/bookings", json={"slotId": i, "players": 1, **PERSON, "email": f"p{i}@x.it", "phone": p}).status_code
+             for i, p in zip(ids, phones)]
+    assert codes == [201, 201, 201, 429]
+    assert {b["phone"] for b in api.get("/api/admin/bookings", headers=api.admin).json()} == {"+393331234567"}
+
+
+def test_impossible_dates_and_out_of_range_numbers_are_rejected(api):
+    for bad in ({"date": "2099-02-29"}, {"date": "0000-01-01"}, {"priceCents": 2**63}, {"priceCents": main.MAX_PRICE_CENTS + 1}):
+        assert api.post("/api/admin/slots", json={**SLOT, **bad}, headers=api.admin).status_code == 400
+    assert api.post("/api/bookings", json={"slotId": 2**63, "players": 1, **PERSON}).status_code == 400
+    assert api.delete(f"/api/admin/bookings/{2**63}", headers=api.admin).status_code == 404
+    assert api.delete(f"/api/admin/slots/{-(2**64)}", headers=api.admin).status_code == 404
+    assert api.get("/api/slots").status_code == 200
+
+
+def test_admin_bookings_can_start_from_a_date(api):
+    for date in ("2099-01-01", "2099-02-01"):
+        s = api.post("/api/admin/slots", json={**SLOT, "date": date}, headers=api.admin).json()
+        api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON})
+    assert [b["date"] for b in api.get("/api/admin/bookings?from=2099-01-15", headers=api.admin).json()] == ["2099-02-01"]
+    assert api.get("/api/admin/bookings?from=2099-02-30", headers=api.admin).status_code == 400

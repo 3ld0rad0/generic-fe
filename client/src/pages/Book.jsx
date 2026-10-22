@@ -245,7 +245,7 @@ export default function Book() {
       load()
     } catch (err) {
       setSubmitError(err.message)
-      if (err.status === 404 || err.status === 400) {
+      if (err.status === 404 || err.status === 400 || err.status === 409) {
         const fresh = await load()
         if (!fresh?.some((s) => s.id === slotId)) {
           setSlotId(null)

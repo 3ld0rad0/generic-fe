@@ -310,6 +310,10 @@ button { color: inherit; }
 .admin-panel-head { display: flex; justify-content: space-between; align-items: center; padding: 22px; border-bottom: 1px solid #2d2d2d; }
 .admin-panel h2 { font: 700 19px var(--heading); text-transform: uppercase; }.admin-panel p { margin-top: 4px; color: #777; font-size: 9px; }
 .search { position: relative; width: 230px; }.search span { position: absolute; left: 12px; top: 10px; color: #777; }.search input { height: 38px; padding-left: 34px; font-size: 9px; }
+.panel-tools { display: flex; align-items: center; gap: 10px; }
+.panel-tools .search { flex: 1; }
+.panel-tools .field select { width: 110px; font-size: 10px; }
+.panel-tools .field select, .panel-tools .search input { height: 38px; }
 .table-wrap { position: relative; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 10px; }
 th { padding: 12px 18px; color: #696969; background: #161616; text-align: left; text-transform: uppercase; letter-spacing: .06em; }

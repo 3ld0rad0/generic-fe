@@ -17,4 +17,5 @@ ENV DB_PATH=/data/paintball.db
 VOLUME /data
 EXPOSE 3000
 USER app
-CMD ["uvicorn", "app.main:create_default_app", "--factory", "--host", "0.0.0.0", "--port", "3000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# Oltre 300 connessioni contemporanee (~1 s di coda alla capacità misurata) risponde subito 503 invece di accodare.
+CMD ["uvicorn", "app.main:create_default_app", "--factory", "--host", "0.0.0.0", "--port", "3000", "--proxy-headers", "--forwarded-allow-ips", "*", "--limit-concurrency", "300"]

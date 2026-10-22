@@ -1,4 +1,22 @@
+{
+	servers {
+		# Chiude i client lenti (slowloris) prima che occupino connessioni.
+		timeouts {
+			read_header 10s
+			read_body 10s
+		}
+	}
+}
+
 {$DOMAIN:localhost} {
+	request_body {
+		max_size 10KiB
+	}
 	encode gzip
-	reverse_proxy app:3000
+	reverse_proxy app:3000 {
+		transport http {
+			# Meno dei 5 s di keep-alive di uvicorn: non riusa connessioni già chiuse (502 sui POST).
+			keepalive 4s
+		}
+	}
 }

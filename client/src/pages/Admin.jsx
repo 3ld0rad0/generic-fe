@@ -13,6 +13,11 @@ const WEEKDAYS = [
   ['Dom', 0],
 ]
 const MAX_DATES = 366
+const PERIODS = [
+  ['upcoming', 'Future'],
+  ['past', 'Passate'],
+  ['all', 'Tutte'],
+]
 const EMPTY_SESSION = {
   mode: 'single',
   activity: ACTIVITIES[0].slug,
@@ -94,6 +99,7 @@ function Dashboard({ onLogout }) {
   const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [activityFilter, setActivityFilter] = useState('')
+  const [bookingPeriod, setBookingPeriod] = useState('upcoming')
   const [slotPeriod, setSlotPeriod] = useState('upcoming')
   const [slotDate, setSlotDate] = useState('')
   const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
@@ -113,17 +119,26 @@ function Dashboard({ onLogout }) {
     [onLogout],
   )
 
+  // Lo storico (date passate) si scarica solo quando un filtro lo richiede.
+  const needsHistory = bookingPeriod !== 'upcoming' || slotPeriod !== 'upcoming' || (!!slotDate && slotDate < today)
+  const from = needsHistory ? '1970-01-01' : today
+
   const load = useCallback(
-    () =>
-      Promise.all([api('/slots?from=1970-01-01'), api('/admin/bookings', { admin: true })]).then(([s, b]) => {
+    (isCurrent = () => true) =>
+      Promise.all([api(`/slots?from=${from}`), api(`/admin/bookings?from=${from}`, { admin: true })]).then(([s, b]) => {
+        if (!isCurrent()) return
         setSlots(s)
         setBookings(b)
       }, handleError),
-    [handleError],
+    [handleError, from],
   )
 
   useEffect(() => {
-    load()
+    let current = true
+    load(() => current)
+    return () => {
+      current = false
+    }
   }, [load])
 
   const run = async (fn) => {
@@ -183,17 +198,17 @@ function Dashboard({ onLogout }) {
 
   const loading = bookings === null || slots === null
   const q = query.trim().toLowerCase()
+  const inPeriod = (date, period) => period === 'all' || (period === 'upcoming' ? date >= today : date < today)
   const visibleBookings = (bookings ?? []).filter(
     (b) =>
+      inPeriod(b.date, bookingPeriod) &&
       (!activityFilter || b.activity === activityFilter) &&
       (!q || b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q)),
   )
   const visibleSlots = (slots ?? []).filter(
     (s) =>
       (!activityFilter || s.activity === activityFilter) &&
-      (slotDate
-        ? s.date === slotDate
-        : slotPeriod === 'all' || (slotPeriod === 'upcoming' ? s.date >= today : s.date < today)),
+      (slotDate ? s.date === slotDate : inPeriod(s.date, slotPeriod)),
   )
   const upcoming = (bookings ?? []).filter((b) => b.date >= today)
   const bookedBySlot = {}
@@ -310,15 +325,27 @@ function Dashboard({ onLogout }) {
                 <h2>Prenotazioni</h2>
                 <p>Tutte le prenotazioni confermate.</p>
               </div>
-              <label className="search">
-                <span aria-hidden="true">⌕</span>
-                <input
-                  placeholder="Cerca per nome o email"
-                  aria-label="Cerca per nome o email"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </label>
+              <div className="panel-tools">
+                <label className="field">
+                  <span className="sr-only">Mostra</span>
+                  <select value={bookingPeriod} onChange={(e) => setBookingPeriod(e.target.value)}>
+                    {PERIODS.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="search">
+                  <span aria-hidden="true">⌕</span>
+                  <input
+                    placeholder="Cerca per nome o email"
+                    aria-label="Cerca per nome o email"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </label>
+              </div>
             </div>
             {loading ? (
               <div className="state-card">
@@ -478,9 +505,11 @@ function Dashboard({ onLogout }) {
                 <label className="field">
                   <span>Mostra</span>
                   <select value={slotPeriod} disabled={!!slotDate} onChange={(e) => setSlotPeriod(e.target.value)}>
-                    <option value="upcoming">Future</option>
-                    <option value="past">Passate</option>
-                    <option value="all">Tutte</option>
+                    {PERIODS.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <Field label="Data" type="date" value={slotDate} onChange={(e) => setSlotDate(e.target.value)} />
