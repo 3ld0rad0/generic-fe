@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom'
 import { ACTIVITIES } from '../api.js'
+import { usePageMeta } from '../helpers.js'
 import { ButtonLink, Icon, SectionTitle } from '../ui.jsx'
 
 const images = {
-  hero: 'https://images.unsplash.com/photo-1557543237-519b4f6d3373?auto=format&fit=crop&w=2000&q=88',
-  team: 'https://images.unsplash.com/photo-1569512850497-bd83aa6a2425?auto=format&fit=crop&w=1400&q=85',
+  hero: '/hero.jpg',
+  team: '/team.jpg',
 }
 
 const features = [
@@ -32,6 +33,7 @@ const steps = [
 ]
 
 export default function Home() {
+  usePageMeta({})
   return (
     <main className="home">
       <section className="hero" style={{ backgroundImage: `url(${images.hero})` }}>

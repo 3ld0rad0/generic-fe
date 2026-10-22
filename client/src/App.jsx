@@ -2,9 +2,12 @@ import { Route, Routes } from 'react-router-dom'
 import Home from './pages/Home.jsx'
 import Book from './pages/Book.jsx'
 import Admin from './pages/Admin.jsx'
+import { Cookies, Privacy, Terms } from './pages/Legal.jsx'
+import { usePageMeta } from './helpers.js'
 import { ButtonLink, SiteLayout } from './ui.jsx'
 
 function NotFound() {
+  usePageMeta({ title: 'Pagina non trovata', noindex: true })
   return (
     <main className="booking-page">
       <div className="page-hero">
@@ -27,6 +30,9 @@ export default function App() {
       <Route element={<SiteLayout />}>
         <Route index element={<Home />} />
         <Route path="prenota" element={<Book />} />
+        <Route path="privacy" element={<Privacy />} />
+        <Route path="cookie" element={<Cookies />} />
+        <Route path="termini" element={<Terms />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="admin" element={<Admin />} />

@@ -241,6 +241,8 @@ def create_app(db, admin_password, secret, static_dir=None):
         name, email, phone = _clean_name(b.get("name")), _clean_email(b.get("email")), _clean_phone(b.get("phone"))
         if not _is_pos_int(slot_id):
             raise _bad("Sessione non valida")
+        if b.get("consent") is not True:
+            raise _bad("Per prenotare devi accettare l'informativa privacy")
         if name is None:
             raise _bad("Nome non valido")
         if email is None:

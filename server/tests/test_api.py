@@ -8,7 +8,7 @@ from app.db import open_db
 from app.main import create_app
 
 SLOT = {"activity": "paintball", "date": "2099-01-01", "time": "10:00", "priceCents": 2500}
-PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456"}
+PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456", "consent": True}
 
 
 @pytest.fixture
@@ -190,10 +190,10 @@ def test_bookings_per_ip_are_limited(api):
     for i in range(main.BOOKING_IP_MAX):
         r = api.post(
             "/api/bookings",
-            json={"slotId": ids[i], "players": 1, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00"},
+            json={"slotId": ids[i], "players": 1, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00", "consent": True},
         )
         assert r.status_code == 201
-    r = api.post("/api/bookings", json={"slotId": ids[-1], "players": 1, "name": "Anna", "email": "z@x.it", "phone": "5559999"})
+    r = api.post("/api/bookings", json={"slotId": ids[-1], "players": 1, "name": "Anna", "email": "z@x.it", "phone": "5559999", "consent": True})
     assert r.status_code == 429
 
 
@@ -235,7 +235,7 @@ def test_invalid_contact_fields_are_rejected(api, field, value):
 
 def test_contact_fields_are_normalized_before_saving(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    person = {"name": "  Jean-Luc   D’Angelo Jr. ", "email": " Mario.Rossi+test@Example.IT ", "phone": " +39 (333) 123-45.67 "}
+    person = {"name": "  Jean-Luc   D’Angelo Jr. ", "email": " Mario.Rossi+test@Example.IT ", "phone": " +39 (333) 123-45.67 ", "consent": True}
     assert api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **person}).status_code == 201
     saved = api.get("/api/admin/bookings", headers=api.admin).json()[0]
     assert (saved["name"], saved["email"], saved["phone"]) == ("Jean-Luc D’Angelo Jr.", "mario.rossi+test@example.it", "+393331234567")
@@ -294,3 +294,11 @@ def test_admin_bookings_can_start_from_a_date(api):
         api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON})
     assert [b["date"] for b in api.get("/api/admin/bookings?from=2099-01-15", headers=api.admin).json()] == ["2099-02-01"]
     assert api.get("/api/admin/bookings?from=2099-02-30", headers=api.admin).status_code == 400
+
+
+@pytest.mark.parametrize("consent", [None, False, "true", 1])
+def test_booking_requires_privacy_consent(api, consent):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    body = {"slotId": s["id"], "players": 1, **PERSON, "consent": consent}
+    assert api.post("/api/bookings", json=body).status_code == 400
+    assert api.get("/api/admin/bookings", headers=api.admin).json() == []

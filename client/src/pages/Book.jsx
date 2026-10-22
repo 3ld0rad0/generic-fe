@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { ACTIVITIES, activityBySlug, api, cleanEmail, cleanName, cleanPhone, euro, formatDate, toISO, todayISO } from '../api.js'
+import { Link, useSearchParams } from 'react-router-dom'
+import {
+  ACTIVITIES,
+  activityBySlug,
+  api,
+  cleanEmail,
+  cleanName,
+  cleanPhone,
+  euro,
+  forgetCustomer,
+  formatDate,
+  loadCustomer,
+  saveCustomer,
+  toISO,
+  todayISO,
+} from '../api.js'
+import { gridKeys, usePageMeta } from '../helpers.js'
 import { Button, ButtonLink, Field, Icon } from '../ui.jsx'
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
@@ -28,6 +43,11 @@ function Calendar({ month, onMonthChange, byDate, selected, onSelect, lastDate, 
   const daysInMonth = new Date(year, m + 1, 0).getDate()
   const current = monthKey(year, m)
   const label = new Date(year, m, 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+  const enabledDays = Array.from({ length: daysInMonth }, (_, i) => toISO(new Date(year, m, i + 1))).filter(
+    (iso) => iso >= today && byDate[iso],
+  )
+  // Un solo giorno entra nell'ordine di tabulazione; le frecce spostano il fuoco tra gli altri.
+  const tabStop = enabledDays.includes(selected) ? selected : enabledDays[0]
 
   return (
     <div className="calendar">
@@ -50,7 +70,7 @@ function Calendar({ month, onMonthChange, byDate, selected, onSelect, lastDate, 
           ›
         </button>
       </div>
-      <div className="calendar-grid">
+      <div className="calendar-grid" onKeyDown={gridKeys}>
         {WEEKDAYS.map((d) => (
           <span className="weekday" key={d}>
             {d}
@@ -67,6 +87,7 @@ function Calendar({ month, onMonthChange, byDate, selected, onSelect, lastDate, 
               type="button"
               key={iso}
               disabled={iso < today || !daySlots}
+              tabIndex={iso === tabStop ? 0 : -1}
               className={`${daySlots ? 'day-available' : ''} ${selected === iso ? 'selected' : ''}`}
               aria-pressed={selected === iso}
               aria-label={`${formatDate(iso)}${daySlots ? ', disponibile' : ''}`}
@@ -140,6 +161,10 @@ function Summary({ slot, players }) {
 }
 
 export default function Book() {
+  usePageMeta({
+    title: 'Prenota una sessione',
+    description: 'Scegli attività, giorno e orario e prenota online paintball, tiro con l’arco o carabina a Milano.',
+  })
   const [params] = useSearchParams()
   const [today] = useState(todayISO)
   const [activity, setActivity] = useState(() => activityBySlug(params.get('activity'))?.slug ?? ACTIVITIES[0].slug)
@@ -151,7 +176,10 @@ export default function Book() {
   const [pickedMonth, setPickedMonth] = useState(null)
   const [slotId, setSlotId] = useState(null)
   const [players, setPlayers] = useState(1)
-  const [form, setForm] = useState(EMPTY_FORM)
+  const [saved, setSaved] = useState(loadCustomer)
+  const [form, setForm] = useState(() => saved ?? EMPTY_FORM)
+  const [remember, setRemember] = useState(() => !!saved)
+  const [consent, setConsent] = useState(false)
   const [errors, setErrors] = useState({})
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -210,6 +238,14 @@ export default function Book() {
     setSubmitError('')
   }
 
+  const isWeekend = (iso) => [0, 6].includes(new Date(`${iso}T00:00:00`).getDay())
+  const firstDate = slots?.[0]?.date ?? null
+  const weekendDate = slots?.find((s) => isWeekend(s.date))?.date ?? null
+  const jumpTo = (iso) => {
+    selectDate(iso)
+    setPickedMonth([Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1])
+  }
+
   const retry = () => {
     setLoadError('')
     setSlots(null)
@@ -230,6 +266,7 @@ export default function Book() {
     if (!name) next.name = 'Inserisci nome e cognome (solo lettere, spazi, apostrofi e trattini)'
     if (!email) next.email = 'Inserisci un indirizzo email valido'
     if (!phone) next.phone = 'Inserisci un numero valido (6-15 cifre, es. +39 333 123 4567)'
+    if (!consent) next.consent = 'Per prenotare devi accettare l’informativa privacy'
     setErrors(next)
     if (Object.keys(next).length) return
 
@@ -238,8 +275,15 @@ export default function Book() {
     try {
       const { id } = await api('/bookings', {
         method: 'POST',
-        body: { slotId: selectedSlot.id, name, email, phone, players },
+        body: { slotId: selectedSlot.id, name, email, phone, players, consent: true },
       })
+      if (remember) {
+        saveCustomer({ name, email, phone })
+        setSaved({ name, email, phone })
+      } else {
+        forgetCustomer()
+        setSaved(null)
+      }
       setConfirmed({ id, slot: selectedSlot, players, name })
       setStep(3)
       load()
@@ -263,7 +307,8 @@ export default function Book() {
     setPickedMonth(null)
     setSlotId(null)
     setPlayers(1)
-    setForm(EMPTY_FORM)
+    setForm(remember ? (loadCustomer() ?? EMPTY_FORM) : EMPTY_FORM)
+    setConsent(false)
     setErrors({})
     setSubmitError('')
     setConfirmed(null)
@@ -271,6 +316,13 @@ export default function Book() {
   }
 
   const setField = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+
+  const forgetMe = () => {
+    forgetCustomer()
+    setSaved(null)
+    setRemember(false)
+    setForm(EMPTY_FORM)
+  }
 
   return (
     <main className="booking-page">
@@ -305,6 +357,15 @@ export default function Book() {
                   {a.name}
                 </button>
               ))}
+            </div>
+            <div className="quick-picks" role="group" aria-label="Scorciatoie per la data">
+              <span>Scegli al volo</span>
+              <button type="button" disabled={!firstDate} onClick={() => jumpTo(firstDate)}>
+                Prima data libera
+              </button>
+              <button type="button" disabled={!weekendDate} onClick={() => jumpTo(weekendDate)}>
+                Primo weekend libero
+              </button>
             </div>
             <div className="date-time-grid">
               <Calendar
@@ -446,6 +507,46 @@ export default function Book() {
                       <Icon name="plus" size={18} />
                     </button>
                   </div>
+                </div>
+                <label className="check-field">
+                  <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+                  <span>
+                    Ricorda i miei dati su questo dispositivo
+                    {saved && (
+                      <>
+                        {' · '}
+                        <button type="button" className="link-button" onClick={forgetMe}>
+                          Dimentica i miei dati
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </label>
+                <div className="consent-block">
+                  <label className="check-field">
+                    <input
+                      type="checkbox"
+                      checked={consent}
+                      aria-invalid={errors.consent ? true : undefined}
+                      aria-describedby={errors.consent ? 'consent-error' : undefined}
+                      onChange={(e) => {
+                        setConsent(e.target.checked)
+                        setErrors({ ...errors, consent: undefined })
+                      }}
+                    />
+                    <span>
+                      Ho letto l’
+                      <Link to="/privacy" target="_blank">
+                        informativa privacy
+                      </Link>{' '}
+                      e accetto il trattamento dei miei dati per gestire la prenotazione.
+                    </span>
+                  </label>
+                  {errors.consent && (
+                    <small className="check-error" id="consent-error">
+                      {errors.consent}
+                    </small>
+                  )}
                 </div>
                 {submitError && (
                   <p className="alert" role="alert">

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ACTIVITIES, activityBySlug, api, euro, formatDate, formatShortDate, getToken, setToken, toISO, todayISO } from '../api.js'
+import { downloadCsv } from '../csv.js'
+import { gridKeys, usePageMeta } from '../helpers.js'
 import { Button, Field, Icon } from '../ui.jsx'
 
 const WEEKDAYS = [
@@ -13,6 +15,10 @@ const WEEKDAYS = [
   ['Dom', 0],
 ]
 const MAX_DATES = 366
+const MODES = [
+  ['single', 'Singola'],
+  ['batch', 'Settimana'],
+]
 const PERIODS = [
   ['upcoming', 'Future'],
   ['past', 'Passate'],
@@ -42,6 +48,8 @@ function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, sele
     else if (s.bookable) d.free += 1
     else d.closed += 1
   }
+  // Un solo giorno entra nell'ordine di tabulazione; le frecce spostano il fuoco tra gli altri.
+  const tabStop = byDate[selected] ? selected : Object.keys(byDate).find((iso) => iso.startsWith(monthKey(year, m)))
 
   return (
     <div className="calendar">
@@ -54,7 +62,7 @@ function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, sele
           ›
         </button>
       </div>
-      <div className="calendar-grid" aria-busy={loading}>
+      <div className="calendar-grid" aria-busy={loading} onKeyDown={gridKeys}>
         {WEEKDAYS.map(([name]) => (
           <span className="weekday" key={name}>
             {name}
@@ -80,6 +88,7 @@ function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, sele
               type="button"
               key={iso}
               disabled={!d}
+              tabIndex={iso === tabStop ? 0 : -1}
               className={`${state} ${selected === iso ? 'selected' : ''} ${iso === today ? 'is-today' : ''}`}
               aria-pressed={selected === iso}
               aria-label={d ? `${formatDate(iso)}: ${d.free} libere, ${d.booked} prenotate` : formatDate(iso)}
@@ -174,7 +183,7 @@ function Login({ onLogin }) {
 }
 
 function Dashboard({ onLogout }) {
-  const [tab, setTab] = useState('bookings')
+  const [tab, setTab] = useState('today')
   const [bookings, setBookings] = useState(null)
   const [slots, setSlots] = useState(null)
   const [error, setError] = useState('')
@@ -309,6 +318,9 @@ function Dashboard({ onLogout }) {
   }
   const calendarSlots = (slots ?? []).filter((s) => !activityFilter || s.activity === activityFilter)
   const daySlots = calendarSlots.filter((s) => s.date === calDate)
+  const todaySlots = calendarSlots.filter((s) => s.date === today)
+  const todayBooked = todaySlots.filter((s) => bookingBySlot[s.id])
+  const todayPlayers = todayBooked.reduce((sum, s) => sum + bookingBySlot[s.id].players, 0)
 
   return (
     <main className="dashboard">
@@ -393,6 +405,15 @@ function Dashboard({ onLogout }) {
           <button
             type="button"
             role="tab"
+            aria-selected={tab === 'today'}
+            className={tab === 'today' ? 'active' : ''}
+            onClick={() => setTab('today')}
+          >
+            Oggi
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === 'bookings'}
             className={tab === 'bookings' ? 'active' : ''}
             onClick={() => setTab('bookings')}
@@ -418,6 +439,73 @@ function Dashboard({ onLogout }) {
             Calendario
           </button>
         </div>
+
+        {tab === 'today' && (
+          <section className="admin-panel today-panel">
+            <h1 className="print-only">Cardinali Poligono · programma di {formatDate(today)}</h1>
+            <div className="admin-panel-head">
+              <div>
+                <h2>Programma di oggi</h2>
+                <p>
+                  {formatDate(today)}: {todaySlots.length} {todaySlots.length === 1 ? 'sessione' : 'sessioni'}, {todayBooked.length}{' '}
+                  {todayBooked.length === 1 ? 'prenotata' : 'prenotate'}, {todayPlayers} partecipanti attesi.
+                </p>
+              </div>
+              <Button className="btn-sm no-print" variant="ghost" disabled={todaySlots.length === 0} onClick={() => window.print()}>
+                Stampa
+              </Button>
+            </div>
+            {loading ? (
+              <div className="state-card">
+                <span className="spinner" />
+                <h4>Caricamento...</h4>
+              </div>
+            ) : todaySlots.length === 0 ? (
+              <div className="admin-empty">
+                <Icon name="calendar" size={34} />
+                <h3>Nessuna sessione oggi</h3>
+                <p>Per oggi non ci sono turni in programma.</p>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ora</th>
+                      <th>Attività</th>
+                      <th>Stato</th>
+                      <th>Nome</th>
+                      <th>Telefono</th>
+                      <th>Partecipanti</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {todaySlots.map((s) => {
+                      const booking = bookingBySlot[s.id]
+                      const status = booking ? 'booked' : s.bookable ? 'free' : 'closed'
+                      return (
+                        <tr key={s.id}>
+                          <td>
+                            <strong>{s.time}</strong>
+                          </td>
+                          <td>{activityName(s.activity)}</td>
+                          <td>
+                            <span className={`status-pill ${status}`}>
+                              {{ booked: 'Prenotata', free: 'Libera', closed: 'Chiusa' }[status]}
+                            </span>
+                          </td>
+                          <td>{booking?.name ?? '—'}</td>
+                          <td>{booking?.phone ?? '—'}</td>
+                          <td>{booking ? booking.players : '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
 
         {tab === 'calendar' && (
           <section className="calendar-layout">
@@ -473,6 +561,33 @@ function Dashboard({ onLogout }) {
                         <span className={`status-pill ${status}`}>
                           {{ booked: 'Prenotata', free: 'Libera', closed: 'Chiusa' }[status]}
                         </span>
+                        <div className="day-actions">
+                          {booking && (
+                            <button
+                              type="button"
+                              className="mini-btn danger"
+                              onClick={() =>
+                                remove(`/admin/bookings/${booking.id}`, `Annullare la prenotazione di ${booking.name}?`)
+                              }
+                            >
+                              Annulla prenotazione
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="mini-btn danger"
+                            onClick={() =>
+                              remove(
+                                `/admin/slots/${s.id}`,
+                                booking
+                                  ? `Eliminare la sessione? Verrà cancellata anche la prenotazione di ${booking.name}.`
+                                  : 'Eliminare la sessione?',
+                              )
+                            }
+                          >
+                            Elimina sessione
+                          </button>
+                        </div>
                       </article>
                     )
                   })}
@@ -509,6 +624,14 @@ function Dashboard({ onLogout }) {
                     onChange={(e) => setQuery(e.target.value)}
                   />
                 </label>
+                <Button
+                  className="btn-sm"
+                  variant="ghost"
+                  disabled={visibleBookings.length === 0}
+                  onClick={() => downloadCsv(visibleBookings, `prenotazioni-${bookingPeriod}`)}
+                >
+                  Esporta CSV
+                </Button>
               </div>
             </div>
             {loading ? (
@@ -586,10 +709,7 @@ function Dashboard({ onLogout }) {
                 <p>Crea un singolo turno oppure un gruppo di turni con stesso orario e prezzo.</p>
               </div>
               <div className="activity-picker filter two" role="group" aria-label="Modalità di inserimento">
-                {[
-                  ['single', 'Singola'],
-                  ['batch', 'Batch'],
-                ].map(([mode, label]) => (
+                {MODES.map(([mode, label]) => (
                   <button
                     type="button"
                     key={mode}
@@ -738,6 +858,7 @@ function Dashboard({ onLogout }) {
 }
 
 export default function Admin() {
+  usePageMeta({ title: 'Area gestore', noindex: true })
   const [logged, setLogged] = useState(() => !!getToken())
   const logout = useCallback(() => setLogged(false), [])
   return logged ? <Dashboard onLogout={logout} /> : <Login onLogin={() => setLogged(true)} />

@@ -96,3 +96,33 @@ export function cleanPhone(v) {
   if (compact.startsWith('00')) return `+${compact.slice(2)}`
   return compact.startsWith('+') ? compact : `+39${compact}`
 }
+
+// Dati del cliente salvati sul dispositivo solo su richiesta ("Ricorda i miei dati").
+const CUSTOMER_KEY = 'customerData'
+
+export function loadCustomer() {
+  try {
+    const data = JSON.parse(localStorage.getItem(CUSTOMER_KEY))
+    return ['name', 'email', 'phone'].every((k) => typeof data?.[k] === 'string')
+      ? { name: data.name, email: data.email, phone: data.phone }
+      : null
+  } catch {
+    return null
+  }
+}
+
+export function saveCustomer({ name, email, phone }) {
+  try {
+    localStorage.setItem(CUSTOMER_KEY, JSON.stringify({ name, email, phone }))
+  } catch {
+    // Archiviazione non disponibile (navigazione privata): si ripete l'inserimento.
+  }
+}
+
+export function forgetCustomer() {
+  try {
+    localStorage.removeItem(CUSTOMER_KEY)
+  } catch {
+    // Niente da cancellare.
+  }
+}

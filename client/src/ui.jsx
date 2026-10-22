@@ -232,7 +232,11 @@ export function Footer() {
       </div>
       <div className="footer-bottom">
         <span>© {YEAR} Cardinali Poligono</span>
-        <span>Privacy · Cookie · Termini</span>
+        <span className="footer-legal">
+          <Link to="/privacy">Privacy</Link>
+          <Link to="/cookie">Cookie</Link>
+          <Link to="/termini">Termini</Link>
+        </span>
         <Link to="/admin">Area gestore</Link>
       </div>
     </footer>
