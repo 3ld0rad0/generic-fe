@@ -27,6 +27,34 @@ def test_admin_routes_require_auth_and_wrong_password_is_rejected(api):
     assert api.post("/api/admin/login", json={"password": "x"}).status_code == 401
 
 
+def test_api_responses_are_not_cached(api):
+    responses = [
+        api.get("/api/slots"),
+        api.get("/api/admin/bookings", headers=api.admin),
+        api.get("/api/admin/bookings"),
+        api.post("/api/admin/login", json={"password": "wrong"}),
+        api.post("/api/admin/slots", json={}, headers=api.admin),
+        api.get("/api/missing"),
+        api.post("/api/admin/login", content=b"x" * (main.MAX_BODY_BYTES + 1)),
+        api.post("/api/admin/logout", headers=api.admin),
+    ]
+    assert [response.status_code for response in responses] == [200, 200, 401, 401, 400, 404, 413, 204]
+    assert all(response.headers["cache-control"] == "no-store" for response in responses)
+
+
+def test_api_internal_errors_are_not_cached(monkeypatch):
+    client = TestClient(create_app(open_db(":memory:"), "pw", "s"), raise_server_exceptions=False)
+
+    def broken_today():
+        raise RuntimeError("test error")
+
+    monkeypatch.setattr(main, "_today", broken_today)
+    response = client.get("/api/slots")
+    assert response.status_code == 500
+    assert response.json() == {"error": "Errore interno"}
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_logout_revokes_only_the_current_admin_session(api):
     other = api.post("/api/admin/login", json={"password": "pw"})
     assert other.headers["cache-control"] == "no-store"

@@ -173,8 +173,12 @@ def create_app(db, admin_password, secret, static_dir=None):
     async def limit_body(request: Request, call_next):
         length = request.headers.get("content-length")
         if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
-            return JSONResponse({"error": "Richiesta troppo grande"}, status_code=413)
-        return await call_next(request)
+            response = JSONResponse({"error": "Richiesta troppo grande"}, status_code=413)
+        else:
+            response = await call_next(request)
+        if request.url.path == "/api" or request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):
@@ -192,7 +196,7 @@ def create_app(db, admin_password, secret, static_dir=None):
 
     @app.exception_handler(Exception)
     async def unhandled_error(request, exc):
-        return JSONResponse({"error": "Errore interno"}, status_code=500)
+        return JSONResponse({"error": "Errore interno"}, status_code=500, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/admin/login")
     def login(request: Request, body: dict[str, Any] | None = Body(default=None)):
