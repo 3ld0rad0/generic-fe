@@ -59,11 +59,14 @@ button { color: inherit; }
   position: fixed; z-index: 100; inset: 0 0 auto;
   height: 72px; display: flex; align-items: center; justify-content: space-between;
   padding: 0 max(32px, calc((100vw - 1280px) / 2));
-  background: rgba(18,18,18,.88); border-bottom: 1px solid rgba(255,255,255,.09);
-  backdrop-filter: blur(16px);
+  background: transparent; border-bottom: 1px solid transparent; color: #f6f2ea;
+  transition: background .25s, border-color .25s, box-shadow .25s;
 }
+.navbar.is-solid { background: #1f1f23; border-bottom-color: rgba(255,255,255,.08); box-shadow: 0 4px 18px rgba(0,0,0,.28); }
 .logo { display: inline-flex; align-items: center; gap: 10px; font: 700 21px/1 var(--heading); letter-spacing: .03em; white-space: nowrap; }
 .logo b { color: var(--orange); }
+.navbar .logo { transition: opacity .25s, visibility .25s; }
+.navbar.logo-hidden .logo { opacity: 0; visibility: hidden; }
 .logo-mark, .manager-mark { display: grid; place-items: center; color: var(--orange); }
 .nav-links { display: flex; align-items: center; gap: 38px; }
 .nav-links > a:not(.btn) { color: #d7d4cf; font-size: 14px; font-weight: 600; transition: color .2s; }
@@ -540,7 +543,7 @@ td strong { color: white; }
 @media (max-width: 800px) {
   .nav-links .theme-toggle { margin-top: 14px; align-self: flex-start; }
   .theme-toggle.floating { right: 20px; }
-  [data-theme='light'] .nav-links { background: #fff; border-bottom-color: var(--line); }
+  [data-theme='light'] .nav-links { background: #1f1f23; border-bottom-color: rgba(255,255,255,.08); }
 }
 
 /* Light theme: white background, red accent */
@@ -557,10 +560,6 @@ td strong { color: white; }
   --danger: #d92d20;
   color-scheme: light;
 }
-[data-theme='light'] .navbar { background: rgba(255,255,255,.9); border-bottom-color: rgba(0,0,0,.08); }
-[data-theme='light'] .nav-links > a:not(.btn) { color: #4a4a52; }
-[data-theme='light'] .nav-links > a:not(.btn):hover { color: #000; }
-[data-theme='light'] .nav-links > a:not(.btn) { border-bottom-color: var(--line); }
 [data-theme='light'] .btn-primary:hover:not(:disabled) { background: #e0262d; }
 [data-theme='light'] .btn-ghost:hover:not(:disabled) { border-color: #999; background: #f0f0f2; }
 
@@ -640,7 +639,7 @@ td strong { color: white; }
 
 /* Light theme: accenti rossi in hover */
 [data-theme='light'] :is(.feature-icon, .calendar-grid button, .calendar-head button, .slot-card, .activity-picker button, .player-stepper button, .session-list article, .socials a, .tabs button, .step, td, .feature-card h3, .step h3) { transition: background .2s, border-color .2s, color .2s; }
-[data-theme='light'] .nav-links > a:not(.btn):hover, [data-theme='light'] .footer-main a:hover, [data-theme='light'] .back-home:hover { color: var(--orange); }
+[data-theme='light'] .footer-main a:hover, [data-theme='light'] .back-home:hover { color: var(--orange); }
 [data-theme='light'] .btn-ghost:hover:not(:disabled) { color: var(--orange); border-color: var(--orange); background: rgba(215,25,32,.06); }
 [data-theme='light'] .btn-secondary:hover:not(:disabled) { background: var(--orange); color: #fff; }
 [data-theme='light'] .theme-toggle:hover { color: var(--orange); background: rgba(215,25,32,.06); }

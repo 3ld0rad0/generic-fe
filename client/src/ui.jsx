@@ -234,8 +234,31 @@ const YEAR = new Date().getFullYear()
 
 function Navbar() {
   const [open, setOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [pastTop, setPastTop] = useState(false)
+  const { pathname } = useLocation()
+  const headerRef = useRef(null)
+  useEffect(() => {
+    // Lo stacco è il punto in cui la sezione successiva all'hero arriva sotto la barra.
+    const onScroll = () => {
+      const next = document.querySelector('.hero')?.nextElementSibling
+      const barHeight = headerRef.current?.offsetHeight ?? 72
+      setScrolled(next ? next.getBoundingClientRect().top <= barHeight : window.scrollY > 16)
+      setPastTop(window.scrollY > 16)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [pathname])
+  // Solo la home ha un hero scuro sotto la barra: altrove la barra resta opaca.
+  const solid = scrolled || open || pathname !== '/'
+  const hideLogo = pastTop && !open && pathname === '/'
   return (
-    <header className="navbar">
+    <header ref={headerRef} className={`${solid ? 'navbar is-solid' : 'navbar'}${hideLogo ? ' logo-hidden' : ''}`}>
       <Logo />
       <nav
         className={open ? 'nav-links is-open' : 'nav-links'}
