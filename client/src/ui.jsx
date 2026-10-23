@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
 const paths = {
@@ -149,6 +149,73 @@ export function Field({ label, error, ...props }) {
       <input aria-invalid={error ? true : undefined} {...props} />
       {error && <small>{error}</small>}
     </label>
+  )
+}
+
+export function Select({ label, srOnly, value, onChange, options, disabled }) {
+  const [open, setOpen] = useState(false)
+  const [active, setActive] = useState(0)
+  const ref = useRef(null)
+  const current = options.findIndex(([v]) => v === value)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e) => !ref.current?.contains(e.target) && setOpen(false)
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const openMenu = () => {
+    setActive(Math.max(current, 0))
+    setOpen(true)
+  }
+  const choose = (i) => {
+    onChange(options[i][0])
+    setOpen(false)
+  }
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape') return open && (e.stopPropagation(), setOpen(false))
+    if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) return
+    e.preventDefault()
+    if (!open) return openMenu()
+    if (e.key === 'ArrowDown') setActive((active + 1) % options.length)
+    else if (e.key === 'ArrowUp') setActive((active - 1 + options.length) % options.length)
+    else choose(active)
+  }
+
+  return (
+    <div className="field select-field" ref={ref}>
+      <span className={srOnly ? 'sr-only' : undefined}>{label}</span>
+      <button
+        type="button"
+        className="select-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        onKeyDown={onKeyDown}
+      >
+        {options[current]?.[1]}
+      </button>
+      {open && (
+        <ul className="select-menu" role="listbox" aria-label={label}>
+          {options.map(([v, text], i) => (
+            <li
+              key={v}
+              role="option"
+              aria-selected={v === value}
+              className={`${i === active ? 'active' : ''} ${v === value ? 'chosen' : ''}`}
+              onMouseEnter={() => setActive(i)}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => choose(i)}
+            >
+              {text}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

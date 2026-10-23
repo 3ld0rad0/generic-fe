@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { ACTIVITIES, activityBySlug, api, euro, formatDate, formatShortDate, getToken, setToken, toISO, todayISO } from '../api.js'
 import { downloadCsv } from '../csv.js'
 import { gridKeys, usePageMeta } from '../helpers.js'
-import { Button, Field, Icon } from '../ui.jsx'
+import { Button, Field, Icon, Select } from '../ui.jsx'
 
 const WEEKDAYS = [
   ['Lun', 1],
@@ -24,6 +24,7 @@ const PERIODS = [
   ['past', 'Passate'],
   ['all', 'Tutte'],
 ]
+const ACTIVITY_OPTIONS = ACTIVITIES.map((a) => [a.slug, a.name])
 const EMPTY_SESSION = {
   mode: 'single',
   activity: ACTIVITIES[0].slug,
@@ -87,7 +88,7 @@ function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, sele
             <button
               type="button"
               key={iso}
-              disabled={!d}
+              disabled={!d && iso < today}
               tabIndex={iso === tabStop ? 0 : -1}
               className={`${state} ${selected === iso ? 'selected' : ''} ${iso === today ? 'is-today' : ''}`}
               aria-pressed={selected === iso}
@@ -195,6 +196,8 @@ function Dashboard({ onLogout }) {
   const [slotDate, setSlotDate] = useState('')
   const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
   const [saving, setSaving] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const [dayForm, setDayForm] = useState({ activity: ACTIVITIES[0].slug, time: '', price: '25' })
   const [today] = useState(todayISO)
   const [calMonth, setCalMonth] = useState(() => [Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1])
   const [calDate, setCalDate] = useState(today)
@@ -280,6 +283,26 @@ function Dashboard({ onLogout }) {
       )
     }
     setSessionForm({ ...sessionForm, date: '', endDate: '', time: '' })
+  }
+
+  const addDaySession = async (e) => {
+    e.preventDefault()
+    const { activity, time, price } = dayForm
+    if (!time) return setError('Inserisci l\'ora della sessione')
+    setSaving(true)
+    setNotice('')
+    const ok = await run(() =>
+      api('/admin/slots', {
+        method: 'POST',
+        admin: true,
+        body: { activity, date: calDate, time, priceCents: Math.round(Number(price) * 100) },
+      }),
+    )
+    setSaving(false)
+    if (!ok) return
+    setNotice('Sessione creata')
+    setAddOpen(false)
+    setDayForm({ ...dayForm, time: '' })
   }
 
   const remove = (path, message) => {
@@ -516,7 +539,10 @@ function Dashboard({ onLogout }) {
               month={calMonth}
               onMonthChange={(d) => setCalMonth([d.getFullYear(), d.getMonth()])}
               selected={calDate}
-              onSelect={setCalDate}
+              onSelect={(iso) => {
+                setCalDate(iso)
+                if (iso >= today && !calendarSlots.some((s) => s.date === iso)) setAddOpen(true)
+              }}
               loading={loading}
             />
             <div className="admin-panel day-panel">
@@ -533,7 +559,7 @@ function Dashboard({ onLogout }) {
                 <div className="admin-empty">
                   <Icon name="calendar" size={34} />
                   <h3>Nessuna sessione</h3>
-                  <p>Scegli un giorno evidenziato nel calendario.</p>
+                  <p>Nessun turno in questo giorno.</p>
                 </div>
               ) : (
                 <div className="day-sessions">
@@ -593,6 +619,59 @@ function Dashboard({ onLogout }) {
                   })}
                 </div>
               )}
+              {calDate >= today && (
+                <Button className="btn-sm" variant="ghost" icon="plus" onClick={() => setAddOpen(true)}>
+                  Aggiungi sessione
+                </Button>
+              )}
+              {addOpen && (
+                <div className="modal-backdrop" onClick={() => setAddOpen(false)} onKeyDown={(e) => e.key === 'Escape' && setAddOpen(false)}>
+                  <form
+                    className="modal-card day-add"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={`Nuova sessione del ${formatDate(calDate)}`}
+                    onClick={(e) => e.stopPropagation()}
+                    onSubmit={addDaySession}
+                    noValidate
+                  >
+                    <h3>Nuova sessione · {formatShortDate(calDate)}</h3>
+                    <Select
+                      label="Attività"
+                      value={dayForm.activity}
+                      options={ACTIVITY_OPTIONS}
+                      onChange={(activity) => setDayForm({ ...dayForm, activity })}
+                    />
+                    <div className="two-fields">
+                      <Field
+                        label="Ora"
+                        type="time"
+                        required
+                        autoFocus
+                        value={dayForm.time}
+                        onChange={(e) => setDayForm({ ...dayForm, time: e.target.value })}
+                      />
+                      <Field
+                        label="Prezzo (€)"
+                        type="number"
+                        required
+                        min="0"
+                        step="0.01"
+                        value={dayForm.price}
+                        onChange={(e) => setDayForm({ ...dayForm, price: e.target.value })}
+                      />
+                    </div>
+                    <div className="modal-actions">
+                      <Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>
+                        Annulla
+                      </Button>
+                      <Button type="submit" icon="plus" disabled={saving}>
+                        Aggiungi
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -605,16 +684,7 @@ function Dashboard({ onLogout }) {
                 <p>Tutte le prenotazioni confermate.</p>
               </div>
               <div className="panel-tools">
-                <label className="field">
-                  <span className="sr-only">Mostra</span>
-                  <select value={bookingPeriod} onChange={(e) => setBookingPeriod(e.target.value)}>
-                    {PERIODS.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <Select label="Mostra" srOnly value={bookingPeriod} options={PERIODS} onChange={setBookingPeriod} />
                 <label className="search">
                   <span aria-hidden="true">⌕</span>
                   <input
@@ -721,16 +791,12 @@ function Dashboard({ onLogout }) {
                   </button>
                 ))}
               </div>
-              <label className="field">
-                <span>Attività</span>
-                <select value={sessionForm.activity} onChange={setField('activity')}>
-                  {ACTIVITIES.map((a) => (
-                    <option key={a.slug} value={a.slug}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <Select
+                label="Attività"
+                value={sessionForm.activity}
+                options={ACTIVITY_OPTIONS}
+                onChange={(activity) => setSessionForm({ ...sessionForm, activity })}
+              />
               <Field
                 label={sessionForm.mode === 'batch' ? 'Dal' : 'Data'}
                 type="date"
@@ -786,16 +852,7 @@ function Dashboard({ onLogout }) {
                 <p>Tutti i turni creati, con le prenotazioni ricevute.</p>
               </div>
               <div className="session-filters">
-                <label className="field">
-                  <span>Mostra</span>
-                  <select value={slotPeriod} disabled={!!slotDate} onChange={(e) => setSlotPeriod(e.target.value)}>
-                    {PERIODS.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <Select label="Mostra" value={slotPeriod} options={PERIODS} disabled={!!slotDate} onChange={setSlotPeriod} />
                 <Field label="Data" type="date" value={slotDate} onChange={(e) => setSlotDate(e.target.value)} />
               </div>
               <div className="session-scroll">

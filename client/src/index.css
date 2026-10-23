@@ -122,6 +122,7 @@ button { color: inherit; }
 .activity-picker button { display: flex; align-items: center; gap: 12px; padding: 16px; color: #ccc; background: var(--surface); border: 1px solid #2d2d2d; border-radius: 10px; cursor: pointer; font: 700 18px var(--heading); text-align: left; text-transform: uppercase; transition: border-color .2s; }
 .activity-picker button svg { color: var(--orange); flex: 0 0 auto; }
 .activity-picker button:hover, .activity-picker button.selected { border-color: var(--orange); color: white; }
+.activity-picker button:hover:not(.selected) { background: color-mix(in srgb, var(--orange) 10%, var(--surface)); }
 .activity-picker.filter { grid-template-columns: repeat(4, 1fr); margin: 0 0 24px; }
 .activity-picker.filter button { padding: 11px 14px; font-size: 14px; }
 .activity-picker.filter.two { grid-template-columns: repeat(2, 1fr); margin: 0; }
@@ -252,6 +253,20 @@ button { color: inherit; }
 .field input::placeholder { color: #666; }
 .field input:focus, .field select:focus { outline: 0; border-color: var(--orange); box-shadow: 0 0 0 2px rgba(255,90,31,.15); }
 .field small { color: #ff7668; font-size: 11px; }
+.select-field { position: relative; }
+.select-trigger { width: 100%; height: 46px; padding: 0 34px 0 13px; color: white; background: #222; border: 1px solid #383838; border-radius: 7px; font-size: 12px; text-align: left; cursor: pointer; transition: border-color .2s; position: relative; }
+.select-trigger::after { content: ''; position: absolute; right: 14px; top: 50%; width: 6px; height: 6px; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-70%) rotate(45deg); }
+.select-trigger:hover:not(:disabled), .select-trigger:focus, .select-trigger[aria-expanded='true'] { outline: 0; border-color: var(--orange); }
+.select-trigger:focus-visible { box-shadow: 0 0 0 2px rgba(255,90,31,.15); }
+.select-trigger:disabled { opacity: .5; cursor: default; }
+.select-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50; margin: 0; padding: 4px; list-style: none; background: #222; border: 1px solid #383838; border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.select-menu li { padding: 8px 10px; border-radius: 5px; font-size: 12px; cursor: pointer; }
+.select-menu li.active { background: color-mix(in srgb, var(--orange) 16%, transparent); color: var(--orange); }
+.select-menu li.chosen { background: var(--orange); color: #fff; }
+.panel-tools .select-field { width: 110px; }
+.panel-tools .select-trigger { height: 38px; font-size: 11px; }
+[data-theme='light'] .select-trigger, [data-theme='light'] .select-menu { color: #111; background: #fff; border-color: #d4d4d9; }
+[data-theme='light'] .select-trigger:hover:not(:disabled), [data-theme='light'] .select-trigger:focus, [data-theme='light'] .select-trigger[aria-expanded='true'] { border-color: var(--orange); }
 .has-error input { border-color: var(--danger); }
 .player-stepper { grid-column: 1 / 3; display: flex; justify-content: space-between; align-items: center; padding: 18px; background: #222; border-radius: 8px; }
 .player-stepper small { display: block; margin-top: 5px; color: #737373; font-size: 11px; }
@@ -311,6 +326,7 @@ button { color: inherit; }
 .tabs { display: flex; gap: 25px; border-bottom: 1px solid #2d2d2d; }
 .tabs button { position: relative; display: flex; align-items: center; gap: 8px; padding: 14px 3px; color: #777; background: none; border: 0; cursor: pointer; font-size: 11px; font-weight: 700; }
 .tabs button.active { color: white; }
+.tabs button:hover:not(.active) { color: var(--orange); }
 .tabs button.active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--orange); }
 .tabs button span { min-width: 19px; padding: 2px 5px; border-radius: 10px; background: #2b2b2b; font-size: 11px; }
 .admin-panel { margin-top: 24px; background: var(--surface); border: 1px solid #2d2d2d; border-radius: 10px; overflow: hidden; }
@@ -339,6 +355,7 @@ td strong { color: white; }
 .weekday-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .weekday-picker button { height: 34px; border: 1px solid #383838; border-radius: 6px; background: #222; font-size: 11px; font-weight: 700; cursor: pointer; }
 .weekday-picker button.selected { background: var(--orange); border-color: var(--orange); color: white; }
+.weekday-picker button:hover:not(.selected) { border-color: var(--orange); color: var(--orange); }
 .notice { margin-top: 18px; padding: 12px 14px; color: #c9f5da; background: rgba(46,204,113,.08); border: 1px solid rgba(46,204,113,.3); border-radius: 8px; font-size: 12px; }
 [data-theme='light'] .notice { color: #0f6b38; }
 [data-theme='light'] .weekday-picker button:not(.selected) { background: #efeff1; border-color: #d8d8dd; }
@@ -646,9 +663,9 @@ td strong { color: white; }
 [data-theme='light'] .delete:hover { color: var(--orange); background: rgba(215,25,32,.08); border-color: rgba(215,25,32,.3); }
 
 /* Admin: calendario */
-.calendar-layout { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; margin-top: 24px; align-items: start; }
+.calendar-layout { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; margin-top: 24px; align-items: stretch; }
 .calendar-layout .admin-panel { margin-top: 0; }
-.calendar-layout .calendar { padding: 24px; }
+.calendar-layout .calendar { padding: 24px; border-radius: 10px; }
 .calendar-grid button.day-booked:not(.selected) { background: rgba(255,90,31,.16); color: #ffd2c2; box-shadow: inset 0 0 0 1px rgba(255,90,31,.35); }
 .calendar-grid button.day-mixed:not(.selected) { background: linear-gradient(135deg, rgba(46,204,113,.2) 50%, rgba(255,90,31,.2) 50%); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
 .calendar-grid button.day-closed:not(.selected) { color: #777; background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
@@ -659,7 +676,12 @@ td strong { color: white; }
 .day-dots .dot-booked, .calendar-legend .dot-booked { background: var(--orange); }
 .calendar-legend .dot-closed { background: #777; }
 .calendar-grid button.selected .day-dots i { background: #fff; }
-.day-panel { padding: 24px; }
+.day-panel { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.day-add { display: grid; gap: 14px; }
+.day-add h3 { font: 700 16px var(--heading); text-transform: uppercase; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.6); }
+.modal-card { width: min(420px, 100%); padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .day-sessions article { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 14px; margin-top: 10px; padding: 12px 14px; background: #202020; border: 1px solid #303030; border-radius: 7px; }
 .day-time, .booking-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .day-time strong { font: 700 20px var(--heading); }
