@@ -327,7 +327,6 @@ export function Footer() {
           <Link to="/cookie">Cookie</Link>
           <Link to="/termini">Termini</Link>
         </span>
-        <Link to="/admin">Area gestore</Link>
       </div>
     </footer>
   )

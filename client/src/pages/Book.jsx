@@ -588,9 +588,6 @@ export default function Book() {
                 Nuova prenotazione
               </Button>
             </div>
-            <span className="booking-code">
-              Numero prenotazione · <b>#{confirmed.id}</b>
-            </span>
           </section>
         )}
       </div>

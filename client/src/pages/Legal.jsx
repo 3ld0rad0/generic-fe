@@ -48,11 +48,6 @@ export function Privacy() {
           <strong>Dati che ci fornisci prenotando:</strong> nome e cognome, email, numero di telefono, numero di partecipanti,
           attività, data e orario scelti, data e ora della prenotazione.
         </li>
-        <li>
-          <strong>Dati tecnici:</strong> l’indirizzo IP da cui ti colleghi. Il sito lo usa solo in memoria, per limitare le
-          richieste ripetute e i tentativi di accesso abusivi, e non lo salva insieme alla prenotazione. I registri tecnici del
-          server possono comunque conservarlo per il tempo necessario alla sicurezza e al funzionamento del servizio.
-        </li>
       </ul>
 
       <h2>3. Perché li trattiamo e su quale base</h2>
@@ -116,10 +111,6 @@ export function Cookies() {
         <li>
           <strong>Dati del cliente</strong> (<code>customerData</code>): solo se scegli “Ricorda i miei dati su questo
           dispositivo”. Contiene nome, email e telefono e resta sul tuo dispositivo fino a quando non lo cancelli.
-        </li>
-        <li>
-          <strong>Sessione dell’area riservata</strong> (<code>adminToken</code>): riguarda solo il personale che accede alla
-          gestione; si cancella alla chiusura della scheda.
         </li>
       </ul>
 
