@@ -10,7 +10,8 @@ ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 RUN useradd --uid 1000 --no-create-home app
 WORKDIR /app/server
 COPY server/requirements.txt ./
-RUN pip install -r requirements.txt
+RUN python -m pip install --upgrade --only-binary=:all: "pip>=26.2.0" \
+	&& python -m pip install -r requirements.txt
 COPY server/app ./app
 COPY --from=client /app/client/dist /app/client/dist
 ENV DB_PATH=/data/paintball.db

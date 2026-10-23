@@ -26,9 +26,10 @@ init-env:
 
 install: $(VENV)/.installed client/node_modules/.installed
 
-$(VENV)/.installed: server/requirements.txt server/requirements-dev.txt
+$(VENV)/.installed: Makefile server/requirements.txt server/requirements-dev.txt
 	test -d $(VENV) || python3 -m venv $(VENV)
-	$(VENV)/bin/pip install -q -r server/requirements-dev.txt
+	$(VENV)/bin/python -m pip install --upgrade --only-binary=:all: "pip>=26.2.0"
+	$(VENV)/bin/python -m pip install -q -r server/requirements-dev.txt
 	touch $@
 
 client/node_modules/.installed: client/package.json client/package-lock.json
