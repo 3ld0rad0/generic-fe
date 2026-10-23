@@ -1,14 +1,14 @@
-ADMIN_PASSWORD ?= admin
 PORT ?= 3000
 VENV := server/.venv
 
 DAYS ?= 30
 PER_DAY ?= 4
 
-.PHONY: help install dev server client test seed reset-db lint build clean
+.PHONY: help init-env install dev server client test seed reset-db lint build clean
 
 help:
 	@echo "make install  - installa dipendenze server (venv) e client"
+	@echo "make init-env - genera .env con credenziali casuali senza sovrascrivere file esistenti"
 	@echo "make dev      - avvia server (:$(PORT)) e client (:5173) insieme"
 	@echo "make server   - avvia solo l'API FastAPI con reload"
 	@echo "make client   - avvia solo il dev server Vite"
@@ -18,7 +18,11 @@ help:
 	@echo "make lint     - lint del client"
 	@echo "make build    - build di produzione del client"
 	@echo "make clean    - rimuove venv, node_modules e dist"
-	@echo "Variabili: ADMIN_PASSWORD=$(ADMIN_PASSWORD) PORT=$(PORT)"
+	@echo "Variabili: PORT=$(PORT)"
+
+init-env:
+	@python3 -c 'import os, secrets; config = "DOMAIN=localhost\nADMIN_PASSWORD=" + secrets.token_hex(32) + "\nSESSION_SECRET=" + secrets.token_hex(32) + "\nAPP_TZ=Europe/Rome\n"; descriptor = os.open(".env", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600); stream = os.fdopen(descriptor, "w"); stream.write(config); stream.close()'
+	@echo ".env creato con permessi 0600. Le credenziali non vengono mostrate."
 
 install: $(VENV)/.installed client/node_modules/.installed
 
@@ -35,7 +39,7 @@ dev: install
 	$(MAKE) -j2 --no-print-directory server client
 
 server: $(VENV)/.installed
-	cd server && ADMIN_PASSWORD=$(ADMIN_PASSWORD) .venv/bin/uvicorn app.main:create_default_app --factory --reload --port $(PORT)
+	@cd server && .venv/bin/uvicorn app.main:create_default_app --factory --env-file ../.env --reload --port $(PORT)
 
 client: client/node_modules/.installed
 	cd client && npm run dev

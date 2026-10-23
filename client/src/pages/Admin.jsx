@@ -196,6 +196,7 @@ function Dashboard({ onLogout }) {
   const [slotDate, setSlotDate] = useState('')
   const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
   const [saving, setSaving] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [dayForm, setDayForm] = useState({ activity: ACTIVITIES[0].slug, time: '', price: '25' })
   const [today] = useState(todayISO)
@@ -214,6 +215,22 @@ function Dashboard({ onLogout }) {
     },
     [onLogout],
   )
+
+  const logout = async () => {
+    if (loggingOut) return
+    setLoggingOut(true)
+    setError('')
+    try {
+      await api('/admin/logout', { method: 'POST', admin: true })
+      setToken(null)
+      onLogout()
+    } catch (err) {
+      if (err.status === 401) handleError(err)
+      else setError(`Uscita non completata: ${err.message}. Riprova.`)
+    } finally {
+      setLoggingOut(false)
+    }
+  }
 
   // Lo storico (date passate) si scarica solo quando un filtro lo richiede.
   const needsHistory =
@@ -362,12 +379,10 @@ function Dashboard({ onLogout }) {
         <div className="head-actions">
           <Button
             variant="ghost"
-            onClick={() => {
-              setToken(null)
-              onLogout()
-            }}
+            disabled={loggingOut}
+            onClick={logout}
           >
-            Esci
+            {loggingOut ? 'Uscita...' : 'Esci'}
           </Button>
         </div>
       </header>

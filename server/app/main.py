@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-import secrets
 import sqlite3
 import threading
 import time
@@ -210,7 +209,12 @@ def create_app(db, admin_password, secret, static_dir=None):
                 failures[ip] = ((count + 1) if active else 1, now + LOGIN_WINDOW_S)
                 raise HTTPException(401, "Password errata")
             failures.pop(ip, None)
-        return {"token": token}
+        return JSONResponse({"token": token}, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/admin/logout", status_code=204)
+    def logout(token: str = Depends(auth.require_admin)):
+        auth.revoke(token)
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
     # Pubblico: slot futuri
     @app.get("/api/slots")
@@ -379,12 +383,23 @@ def create_app(db, admin_password, secret, static_dir=None):
 
 def create_default_app():
     admin_password = os.environ.get("ADMIN_PASSWORD")
-    if not admin_password:
-        raise SystemExit("ADMIN_PASSWORD non impostata")
+    secret = os.environ.get("SESSION_SECRET")
+    if (
+        not admin_password
+        or len(admin_password.strip()) < 12
+        or admin_password.casefold() in {"password123456", "your-admin-password", "change-me-now"}
+    ):
+        raise SystemExit("ADMIN_PASSWORD non valida: usa una password unica di almeno 12 caratteri")
+    if (
+        not secret
+        or len(secret.strip()) < 32
+        or secret.casefold() in {"genera-con-openssl-rand-hex-32", "your-session-secret-at-least-32-characters"}
+    ):
+        raise SystemExit("SESSION_SECRET non valido: genera un segreto casuale con openssl rand -hex 32")
     here = Path(__file__).resolve().parent
     return create_app(
         db=open_db(),
         admin_password=admin_password,
-        secret=os.environ.get("SESSION_SECRET") or secrets.token_hex(32),
+        secret=secret,
         static_dir=os.environ.get("STATIC_DIR") or here.parent.parent / "client" / "dist",
     )
