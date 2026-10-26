@@ -196,12 +196,15 @@ def create_app(db, admin_password, secret, static_dir=None, mailer=None):
         return {**dict(row), "cancellable": _starts_at(row) > _now()}
 
     @app.post("/api/bookings/cancel/{token}", status_code=204)
-    def cancel_booking(token: str):
+    def cancel_booking(token: str, background: BackgroundTasks):
         row = _booking_by_token(token)
         if _starts_at(row) <= _now():
             raise _bad("La sessione è già iniziata, non è più possibile annullare")
         with lock:
+            contact = db.execute("SELECT email, phone FROM bookings WHERE id = ?", (row["id"],)).fetchone()
             db.execute("DELETE FROM bookings WHERE id = ?", (row["id"],))
+        if mailer and contact:
+            background.add_task(mailer, {**dict(row), **dict(contact), "event": "cancelled"})
         return Response(status_code=204)
 
     @app.get("/api/admin/bookings", dependencies=[Depends(auth.require_admin)])

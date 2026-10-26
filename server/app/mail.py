@@ -49,9 +49,28 @@ def admin_message(booking, sender, admin_email):
     return msg
 
 
-def smtp_mailer_from_env():
-    """Ritorna `send(booking)`: conferma al cliente e, se ADMIN_EMAIL è impostata, avviso all'admin.
+def cancellation_admin_message(booking, sender, admin_email):
+    """Mail all'admin per una disdetta."""
+    msg = EmailMessage()
+    msg["Subject"] = f"Disdetta prenotazione #{booking['id']}"
+    msg["From"] = sender
+    msg["To"] = admin_email
+    date = "/".join(reversed(booking["date"].split("-")))
+    msg.set_content(
+        f"{ACTIVITY_NAMES.get(booking['activity'], booking['activity'])} - {date} alle {booking['time']}\n"
+        f"Nome: {booking['name']}\n"
+        f"Partecipanti: {booking['players']}\n"
+        f"Telefono: {booking['phone']}\n"
+        f"Email: {booking['email']}\n"
+    )
+    return msg
 
+
+def smtp_mailer_from_env():
+    """Ritorna `send(booking)`.
+
+    Nuova prenotazione: conferma al cliente e, se ADMIN_EMAIL è impostata, avviso all'admin.
+    Con `booking["event"] == "cancelled"`: solo avviso di disdetta all'admin, se ADMIN_EMAIL è impostata.
     Senza SMTP_HOST le mail vengono solo scritte nel log.
     """
     host = os.environ.get("SMTP_HOST")
@@ -75,6 +94,10 @@ def smtp_mailer_from_env():
             log.exception("Invio mail fallito (destinatario %s)", msg["To"])
 
     def send(booking):
+        if booking.get("event") == "cancelled":
+            if admin_email:
+                deliver(cancellation_admin_message(booking, sender, admin_email))
+            return
         deliver(booking_message(booking, sender, base_url))
         if admin_email:
             deliver(admin_message(booking, sender, admin_email))

@@ -161,6 +161,23 @@ def test_cancel_not_allowed_after_slot_start(api, monkeypatch):
     _at(monkeypatch, "10:00")
     assert api.get(f"/api/bookings/cancel/{token}").json()["cancellable"] is False
     assert api.post(f"/api/bookings/cancel/{token}").status_code == 400
+    assert len(api.sent) == 1
+
+
+def test_cancel_notifies_mailer_only_when_cancelled(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    api.post("/api/bookings", json={"slotId": s["id"], "players": 2, **PERSON})
+    token = api.sent[0]["cancel_token"]
+    assert api.post("/api/bookings/cancel/nope").status_code == 404
+    assert len(api.sent) == 1
+
+    assert api.post(f"/api/bookings/cancel/{token}").status_code == 204
+    event = api.sent[1]
+    assert event["event"] == "cancelled" and event["email"] == "m@x.it" and event["phone"] == "123456"
+    assert event["players"] == 2 and event["date"] == "2099-01-01"
+
+    assert api.post(f"/api/bookings/cancel/{token}").status_code == 404
+    assert len(api.sent) == 2
 
 
 def test_admin_bookings_do_not_expose_cancel_token(api):
@@ -211,4 +228,38 @@ def test_admin_notification_mail_and_mailer_sends_both(monkeypatch):
     monkeypatch.delenv("ADMIN_EMAIL")
     mail.smtp_mailer_from_env()(booking)
     assert sent == ["m@x.it"]
+
+
+def test_cancellation_admin_message_and_mailer(monkeypatch):
+    from app import mail
+
+    booking = {"id": 3, "name": "Mario", "email": "m@x.it", "phone": "123456", "players": 2,
+               "activity": "arco", "date": "2099-01-01", "time": "10:00", "cancel_token": "abc",
+               "event": "cancelled"}
+    msg = mail.cancellation_admin_message(booking, "from@x.it", "admin@x.it")
+    body = msg.get_content()
+    assert msg["To"] == "admin@x.it" and msg["Subject"] == "Disdetta prenotazione #3"
+    assert "01/01/2099" in body and "Mario" in body and "Telefono: 123456" in body and "m@x.it" in body
+    assert "abc" not in body
+
+    sent = []
+    monkeypatch.setenv("SMTP_HOST", "smtp.test")
+    monkeypatch.setenv("ADMIN_EMAIL", "admin@x.it")
+
+    class FakeSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def starttls(self): pass
+        def login(self, *a): pass
+        def send_message(self, msg): sent.append(msg["To"])
+
+    monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
+    mail.smtp_mailer_from_env()(booking)
+    assert sent == ["admin@x.it"]
+
+    sent.clear()
+    monkeypatch.delenv("ADMIN_EMAIL")
+    mail.smtp_mailer_from_env()(booking)
+    assert sent == []
 
