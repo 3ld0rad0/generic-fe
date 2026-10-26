@@ -1,8 +1,11 @@
 # Checklist di deploy
 
 ## 1. Prima di iniziare
-- [ ] Dominio registrato, intestato all'attività, con rinnovo automatico e blocco del trasferimento.
-- [ ] VPS in Europa con Ubuntu LTS, 2 vCPU e 2 GB di RAM.
+- [ ] Account Aruba intestato al cliente, con te come collaboratore o con accesso SSH tramite chiave.
+- [ ] Dominio registrato su Aruba, intestato al cliente, con rinnovo automatico e blocco del trasferimento.
+- [ ] Cloud VPS Aruba (Linux, non hosting condiviso) in datacenter UE/Italia, Ubuntu LTS, minimo 1 vCPU e 1 GB di RAM (consigliati 2 GB).
+- [ ] Con 1 GB di RAM: creato uno swap da 2 GB prima del primo build.
+- [ ] Casella email acquistata a parte (Aruba Mail o PEC); nessun server di posta sulla VPS.
 - [ ] Completati i segnaposto in `client/src/pages/Legal.jsx`: ragione sociale, P. IVA, periodo di conservazione, hosting, annullamenti, maltempo e requisiti di età.
 - [ ] In `client/index.html` aggiornati `og:image` e JSON-LD al dominio reale.
 - [ ] Controllato `client/public/robots.txt`; aggiunta una sitemap se serve.
@@ -13,12 +16,14 @@
 - [ ] Record `A` per `tuodominio.it` verso l'IP della VPS.
 - [ ] Record `A` o `CNAME` per `www`.
 - [ ] Propagazione verificata prima dell'avvio, per esempio con `dig tuodominio.it`.
-- [ ] Record SPF, DKIM e DMARC per la posta, se usi `info@tuodominio.it`.
+- [ ] Record MX, SPF, DKIM e DMARC per la posta, secondo le istruzioni del servizio email Aruba, se usi `info@tuodominio.it`.
+- [ ] Il DNS del dominio è gestito dal pannello Aruba e punta alla VPS.
 
 ## 3. Sicurezza della VPS
 - [ ] Utente non root con `sudo`.
 - [ ] Accesso SSH solo con chiave: `PasswordAuthentication no` e login root disabilitato.
-- [ ] Firewall attivo con solo le porte 22, 80 e 443 aperte.
+- [ ] Firewall attivo (`ufw` e firewall del pannello Aruba) con solo le porte 22, 80 e 443 aperte.
+- [ ] Swap attivo se la RAM è 1 GB: `fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile`, poi riga in `/etc/fstab`.
 - [ ] Aggiornamenti di sicurezza automatici (`unattended-upgrades`).
 - [ ] Docker installato dai repository ufficiali.
 - [ ] Fuso orario e orologio sincronizzati (NTP), perché i turni dipendono dall'ora.
@@ -51,7 +56,7 @@ docker compose up -d --build
 - [ ] Prima del lancio svuotati i dati di prova (con `make reset-db` in locale, mai su dati reali in produzione).
 - [ ] `scripts/backup.sh` in cron, per esempio ogni notte alle 3: `0 3 * * * /percorso/generic-fe/scripts/backup.sh`.
 - [ ] Permessi restrittivi su `backups/` (`chmod 700 backups`).
-- [ ] Copia dei backup fuori dalla VPS (storage esterno o snapshot del provider).
+- [ ] Copia dei backup fuori dalla VPS (storage esterno) e backup/snapshot Aruba attivato.
 - [ ] Ripristino provato su un'altra macchina o directory.
 - [ ] Politica di conservazione definita e coerente con l'informativa privacy.
 
