@@ -5,6 +5,7 @@ import { ButtonLink, Icon, SectionTitle } from '../ui.jsx'
 
 const images = {
   hero: '/hero.jpg',
+  heroGif: '/hero.gif',
   team: '/team.jpg',
 }
 
@@ -37,6 +38,7 @@ export default function Home() {
   return (
     <main className="home">
       <section className="hero" style={{ backgroundImage: `url(${images.hero})` }}>
+        <img className="hero-media" src={images.heroGif} alt="" onError={(e) => e.currentTarget.remove()} />
         <div className="hero-noise" />
         <div className="hero-content">
           <span className="hero-kicker">Milano · Poligono e outdoor</span>
