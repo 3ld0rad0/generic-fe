@@ -1,11 +1,97 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ACTIVITIES } from '../api.js'
 import { usePageMeta } from '../helpers.js'
 import { ButtonLink, Icon, SectionTitle } from '../ui.jsx'
 
+const MAPS_URL = 'https://maps.app.goo.gl/HQXorFtyS3bs26h77'
+
+// Sfondo della home: 'image' (hero.jpg) oppure 'gif' (hero.gif, con hero.jpg come riserva mentre carica o se manca).
+const HERO_MEDIA = 'gif'
+const HERO_SOURCES = { image: ['/hero.jpg'], gif: ['/hero.gif', '/hero.jpg'] }
+
 const images = {
-  hero: '/hero.jpg',
-  team: '/team.jpg',
+  hero: HERO_SOURCES[HERO_MEDIA].map((src) => `url(${src})`).join(', '),
+}
+
+// Foto del carosello "La società": i file stanno in client/public. `position` è l'object-position opzionale.
+const CAROUSEL_INTERVAL_MS = 5000
+const storyPhotos = [
+  { src: '/gruppo.jpg', alt: 'Il team di Cardinali Poligono Club sul campo di tiro' },
+  { src: '/bersagli.jpeg', alt: 'Le linee di tiro con i bersagli' },
+  { src: '/ostacoli_paintball.jpeg', alt: 'Maschera e marcatore davanti agli ostacoli del campo paintball', position: 'center 80%' },
+  { src: '/foto-arco.jpg', alt: 'Un arciere in posizione di tiro', position: 'center 30%' },
+  { src: '/lezioni_bambini.jpeg', alt: 'Un istruttore insegna a tirare con l’arco a un bambino', position: 'center 60%' },
+]
+
+function PhotoCarousel({ photos }) {
+  const track = useRef(null)
+  const [index, setIndex] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const go = (i) => {
+    const el = track.current
+    el.scrollTo({ left: ((i + photos.length) % photos.length) * el.clientWidth, behavior: 'smooth' })
+  }
+
+  // Il timer riparte a ogni cambio foto, anche manuale; si ferma con mouse, focus o dito sul carosello.
+  useEffect(() => {
+    if (paused || photos.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const timer = setTimeout(() => go(index + 1), CAROUSEL_INTERVAL_MS)
+    return () => clearTimeout(timer)
+  }, [index, paused, photos.length])
+
+  return (
+    <div
+      className="carousel"
+      role="region"
+      aria-roledescription="carosello"
+      aria-label="Foto del poligono"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+      onTouchStart={() => setPaused(true)}
+      onTouchEnd={() => setPaused(false)}
+    >
+      <div
+        className="carousel-track"
+        ref={track}
+        onScroll={(e) => setIndex(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
+      >
+        {photos.map((photo) => (
+          <img
+            key={photo.src}
+            src={photo.src}
+            alt={photo.alt}
+            loading="lazy"
+            draggable={false}
+            style={photo.position ? { objectPosition: photo.position } : undefined}
+          />
+        ))}
+      </div>
+      {photos.length > 1 && (
+        <>
+          <button type="button" className="carousel-btn prev" aria-label="Foto precedente" onClick={() => go(index - 1)}>
+            <Icon name="chevron" size={22} />
+          </button>
+          <button type="button" className="carousel-btn next" aria-label="Foto successiva" onClick={() => go(index + 1)}>
+            <Icon name="chevron" size={22} />
+          </button>
+          <div className="carousel-dots">
+            {photos.map((photo, i) => (
+              <button
+                type="button"
+                key={photo.src}
+                aria-label={`Vai alla foto ${i + 1}`}
+                aria-current={i === index}
+                onClick={() => go(i)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 const features = [
@@ -36,10 +122,10 @@ export default function Home() {
   usePageMeta({})
   return (
     <main className="home">
-      <section className="hero" style={{ backgroundImage: `url(${images.hero})` }}>
+      <section className="hero" style={{ backgroundImage: images.hero }}>
         <div className="hero-noise" />
         <div className="hero-content">
-          <span className="hero-kicker">Milano · Poligono e outdoor</span>
+          <span className="hero-kicker">Ponte Corvo (CS) · Poligono e outdoor</span>
           <h1>
             Scegli la tua sfida.
             <br />
@@ -78,7 +164,7 @@ export default function Home() {
               </Link>
             ))}
           </div>
-          <div className="feature-grid">
+          <div className="feature-grid desktop-only">
             {features.map((feature) => (
               <article className="feature-card" key={feature.title}>
                 <span className="feature-icon">
@@ -107,17 +193,17 @@ export default function Home() {
                 <span>anni di attività</span>
               </div>
               <div>
-                <strong>24k</strong>
-                <span>partecipanti</span>
+                <strong>100+</strong>
+                <span>iscritti</span>
               </div>
               <div>
-                <strong>3.8k</strong>
-                <span>sessioni</span>
+                <strong>{ACTIVITIES.length}</strong>
+                <span>attività</span>
               </div>
             </div>
           </div>
           <div className="story-image">
-            <img src={images.team} alt="Il team di Cardinali Poligono" />
+            <PhotoCarousel photos={storyPhotos} />
             <span>
               La nostra squadra,
               <br />
@@ -163,22 +249,25 @@ export default function Home() {
               copy="Hai dubbi, richieste speciali o un gruppo numeroso? Parliamone."
             />
             <div className="contact-list">
-              <a href="https://maps.google.com" target="_blank" rel="noreferrer">
+              <a href={MAPS_URL} target="_blank" rel="noreferrer">
                 <Icon name="map" />
                 <span>
-                  <small>Dove siamo</small>Via del Bosco 24, Milano
+                  <small>Dove siamo</small>Ponte Corvo, 87046 (CS)
                 </span>
               </a>
-              <a href="tel:+390212345678">
+              <div>
                 <Icon name="phone" />
                 <span>
-                  <small>Chiamaci</small>+39 02 1234 5678
+                  <small>Chiamaci</small>
+                  <a href="tel:+393421428985">+39 342 142 8985</a>
+                  <br />
+                  <a href="tel:+393356448314">+39 335 644 8314</a>
                 </span>
-              </a>
-              <a href="mailto:info@cardinalipoligono.it">
+              </div>
+              <a href="mailto:cardinalipoligono@libero.it">
                 <Icon name="mail" />
                 <span>
-                  <small>Scrivici</small>info@cardinalipoligono.it
+                  <small>Scrivici</small>cardinalipoligono@libero.it
                 </span>
               </a>
               <div>
@@ -198,8 +287,8 @@ export default function Home() {
             </div>
             <div className="map-card">
               <strong>Cardinali Poligono</strong>
-              <span>Via del Bosco 24, Milano</span>
-              <a href="https://maps.google.com" target="_blank" rel="noreferrer">
+              <span>Ponte Corvo, 87046 (CS)</span>
+              <a href={MAPS_URL} target="_blank" rel="noreferrer">
                 Apri in Google Maps <Icon name="arrow" size={16} />
               </a>
             </div>

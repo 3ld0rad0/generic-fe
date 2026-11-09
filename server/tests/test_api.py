@@ -11,7 +11,7 @@ from app.db import open_db
 from app.main import create_app
 
 SLOT = {"activity": "paintball", "date": "2099-01-01", "time": "10:00", "priceCents": 2500}
-PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456", "consent": True}
+PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456", "consent": True, "terms": True}
 
 
 @pytest.fixture
@@ -232,7 +232,7 @@ def test_bulk_validation_and_auth(api):
 
 def test_admin_can_delete_booking(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    b = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON}).json()
+    b = api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **PERSON}).json()
     assert api.delete(f"/api/admin/bookings/{b['id']}", headers=api.admin).status_code == 204
     assert api.get("/api/admin/bookings", headers=api.admin).json() == []
 
@@ -312,7 +312,7 @@ def _at(monkeypatch, hh_mm):
 
 def test_booking_closes_one_hour_before_the_slot(api, monkeypatch):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    book = lambda: api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON}).status_code
+    book = lambda: api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **PERSON}).status_code
 
     _at(monkeypatch, "09:01")
     assert api.get("/api/slots?from=2099-01-01").json()[0]["bookable"] is False
@@ -329,7 +329,7 @@ def _booker(api, monkeypatch):
     dates = [f"2099-01-{d:02d}" for d in range(1, 11)]
     api.post("/api/admin/slots/bulk", json={**bulk, "dates": dates}, headers=api.admin)
     free = iter(s["id"] for s in api.get("/api/slots").json())
-    return lambda **p: api.post("/api/bookings", json={"slotId": next(free), "players": 1, **{**PERSON, **p}}).status_code
+    return lambda **p: api.post("/api/bookings", json={"slotId": next(free), "players": 8, **{**PERSON, **p}}).status_code
 
 
 def test_active_bookings_per_email_are_limited_and_deleting_frees_a_place(api, monkeypatch):
@@ -356,10 +356,10 @@ def test_bookings_per_ip_are_limited(api):
     for i in range(main.BOOKING_IP_MAX):
         r = api.post(
             "/api/bookings",
-            json={"slotId": ids[i], "players": 1, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00", "consent": True},
+            json={"slotId": ids[i], "players": 8, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00", "consent": True, "terms": True},
         )
         assert r.status_code == 201
-    r = api.post("/api/bookings", json={"slotId": ids[-1], "players": 1, "name": "Anna", "email": "z@x.it", "phone": "5559999", "consent": True})
+    r = api.post("/api/bookings", json={"slotId": ids[-1], "players": 8, "name": "Anna", "email": "z@x.it", "phone": "5559999", "consent": True, "terms": True})
     assert r.status_code == 429
 
 
@@ -395,21 +395,21 @@ def test_bookings_per_ip_are_limited(api):
 )
 def test_invalid_contact_fields_are_rejected(api, field, value):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, field: value}})
+    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **{**PERSON, field: value}})
     assert r.status_code == 400
 
 
 def test_contact_fields_are_normalized_before_saving(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    person = {"name": "  Jean-Luc   D’Angelo Jr. ", "email": " Mario.Rossi+test@Example.IT ", "phone": " +39 (333) 123-45.67 ", "consent": True}
-    assert api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **person}).status_code == 201
+    person = {"name": "  Jean-Luc   D’Angelo Jr. ", "email": " Mario.Rossi+test@Example.IT ", "phone": " +39 (333) 123-45.67 ", "consent": True, "terms": True}
+    assert api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **person}).status_code == 201
     saved = api.get("/api/admin/bookings", headers=api.admin).json()[0]
     assert (saved["name"], saved["email"], saved["phone"]) == ("Jean-Luc D’Angelo Jr.", "mario.rossi+test@example.it", "+393331234567")
 
 
 def test_accented_names_are_accepted(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, "name": "Niccolò Dell'Orò"}})
+    r = api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **{**PERSON, "name": "Niccolò Dell'Orò"}})
     assert r.status_code == 201
 
 
@@ -418,18 +418,18 @@ def test_names_with_combining_marks_are_stored_in_nfc(api):
 
     for k, name in enumerate((unicodedata.normalize("NFD", "Niccolò Citrò"), "देव शर्मा")):
         s = api.post("/api/admin/slots", json={**SLOT, "date": f"2099-03-0{k + 1}"}, headers=api.admin).json()
-        assert api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **{**PERSON, "name": name}}).status_code == 201
+        assert api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **{**PERSON, "name": name}}).status_code == 201
     names = [b["name"] for b in api.get("/api/admin/bookings", headers=api.admin).json()]
     assert "Niccolò Citrò" in names
 
 
 def test_identical_retry_returns_the_existing_booking(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    body = {"slotId": s["id"], "players": 2, **PERSON}
+    body = {"slotId": s["id"], "players": 8, **PERSON}
     first = api.post("/api/bookings", json=body)
     retry = api.post("/api/bookings", json=body)
     assert (first.status_code, retry.status_code) == (201, 200) and retry.json() == first.json()
-    assert api.post("/api/bookings", json={**body, "players": 3}).status_code == 409
+    assert api.post("/api/bookings", json={**body, "players": 9}).status_code == 409
     assert len(api.get("/api/admin/bookings", headers=api.admin).json()) == 1
 
 
@@ -439,7 +439,7 @@ def test_phone_prefixes_identify_the_same_contact(monkeypatch, api):
     api.post("/api/admin/slots/bulk", json={**bulk, "dates": [f"2099-01-0{d}" for d in range(1, 5)]}, headers=api.admin)
     ids = [s["id"] for s in api.get("/api/slots").json()]
     phones = ["333 123 4567", "+39 3331234567", "0039 333 1234567", "(333) 1234567"]
-    codes = [api.post("/api/bookings", json={"slotId": i, "players": 1, **PERSON, "email": f"p{i}@x.it", "phone": p}).status_code
+    codes = [api.post("/api/bookings", json={"slotId": i, "players": 8, **PERSON, "email": f"p{i}@x.it", "phone": p}).status_code
              for i, p in zip(ids, phones)]
     assert codes == [201, 201, 201, 429]
     assert {b["phone"] for b in api.get("/api/admin/bookings", headers=api.admin).json()} == {"+393331234567"}
@@ -448,7 +448,7 @@ def test_phone_prefixes_identify_the_same_contact(monkeypatch, api):
 def test_impossible_dates_and_out_of_range_numbers_are_rejected(api):
     for bad in ({"date": "2099-02-29"}, {"date": "0000-01-01"}, {"priceCents": 2**63}, {"priceCents": main.MAX_PRICE_CENTS + 1}):
         assert api.post("/api/admin/slots", json={**SLOT, **bad}, headers=api.admin).status_code == 400
-    assert api.post("/api/bookings", json={"slotId": 2**63, "players": 1, **PERSON}).status_code == 400
+    assert api.post("/api/bookings", json={"slotId": 2**63, "players": 8, **PERSON}).status_code == 400
     assert api.delete(f"/api/admin/bookings/{2**63}", headers=api.admin).status_code == 404
     assert api.delete(f"/api/admin/slots/{-(2**64)}", headers=api.admin).status_code == 404
     assert api.get("/api/slots").status_code == 200
@@ -457,7 +457,7 @@ def test_impossible_dates_and_out_of_range_numbers_are_rejected(api):
 def test_admin_bookings_can_start_from_a_date(api):
     for date in ("2099-01-01", "2099-02-01"):
         s = api.post("/api/admin/slots", json={**SLOT, "date": date}, headers=api.admin).json()
-        api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON})
+        api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **PERSON})
     assert [b["date"] for b in api.get("/api/admin/bookings?from=2099-01-15", headers=api.admin).json()] == ["2099-02-01"]
     assert api.get("/api/admin/bookings?from=2099-02-30", headers=api.admin).status_code == 400
 
@@ -465,6 +465,29 @@ def test_admin_bookings_can_start_from_a_date(api):
 @pytest.mark.parametrize("consent", [None, False, "true", 1])
 def test_booking_requires_privacy_consent(api, consent):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    body = {"slotId": s["id"], "players": 1, **PERSON, "consent": consent}
+    body = {"slotId": s["id"], "players": 8, **PERSON, "consent": consent}
     assert api.post("/api/bookings", json=body).status_code == 400
     assert api.get("/api/admin/bookings", headers=api.admin).json() == []
+
+
+@pytest.mark.parametrize("terms", [None, False, "true", 1])
+def test_booking_requires_rules_acceptance(api, terms):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    body = {"slotId": s["id"], "players": 8, **PERSON, "terms": terms}
+    assert api.post("/api/bookings", json=body).status_code == 400
+    assert api.get("/api/admin/bookings", headers=api.admin).json() == []
+
+
+def test_rules_acceptance_is_only_required_for_paintball(api):
+    s = api.post("/api/admin/slots", json={**SLOT, "activity": "carabina"}, headers=api.admin).json()
+    body = {"slotId": s["id"], "players": 1, **PERSON, "terms": False}
+    assert api.post("/api/bookings", json=body).status_code == 201
+
+
+def test_paintball_needs_at_least_eight_players_other_activities_do_not(api):
+    paintball = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    carabina = api.post("/api/admin/slots", json={**SLOT, "activity": "carabina"}, headers=api.admin).json()
+    book = lambda slot, players: api.post("/api/bookings", json={"slotId": slot["id"], "players": players, **PERSON}).status_code
+    assert book(paintball, 7) == 400
+    assert book(paintball, 8) == 201
+    assert book(carabina, 1) == 201

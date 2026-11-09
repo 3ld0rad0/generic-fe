@@ -43,6 +43,8 @@ async function fillDetails(page) {
   await page.getByLabel('Nome e cognome').fill('Utente Test')
   await page.getByLabel('Email').fill(`e2e${n}@stress.it`)
   await page.getByLabel('Telefono').fill(`333 ${String(n).padStart(7, '0')}`)
+  await page.getByLabel(/informativa privacy/).check()
+  await page.getByLabel(/regolamento del paintball/).check()
 }
 
 const confirm = (page) => page.getByRole('button', { name: 'Conferma prenotazione' })
@@ -86,7 +88,7 @@ test('12 · stato obsoleto: lo slot viene cancellato o prenotato mentre l’uten
   await page.getByRole('button', { name: /11:00/ }).click()
   await page.getByRole('button', { name: 'Continua' }).click()
   await fillDetails(page)
-  const other = { slotId: taken, players: 1, name: 'Altro Utente', email: 'altro@stress.it', phone: '3339990001' }
+  const other = { slotId: taken, players: 8, name: 'Altro Utente', email: 'altro@stress.it', phone: '3339990001', consent: true, terms: true }
   expect((await request.post('/api/bookings', { data: other, headers: { 'X-Forwarded-For': '10.78.0.1' } })).status()).toBe(201)
   await confirm(page).click()
   await expect(page.getByRole('alert')).toContainText('già prenotata')

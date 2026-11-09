@@ -30,6 +30,13 @@ const paths = {
     </>
   ),
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  download: (
+    <>
+      <path d="M12 4v11" />
+      <path d="m7 11 5 5 5-5" />
+      <path d="M5 20h14" />
+    </>
+  ),
   facebook: <path d="M14 8h3V4h-3c-3 0-5 2-5 5v3H6v4h3v6h4v-6h3l1-4h-4V9c0-.6.4-1 1-1Z" />,
   gear: (
     <>
@@ -115,7 +122,7 @@ export function Logo() {
   return (
     <Link className="logo" to="/" aria-label="Cardinali Poligono, home">
       <span className="logo-mark">
-        <Icon name="target" size={26} />
+        <span className="logo-wings" />
       </span>
       <span>
         CARDINALI <b>POLIGONO</b>
@@ -304,17 +311,18 @@ export function Footer() {
         </div>
         <div>
           <h3>Contatti</h3>
-          <a href="tel:+390212345678">+39 02 1234 5678</a>
-          <a href="mailto:info@cardinalipoligono.it">info@cardinalipoligono.it</a>
-          <span>Via del Bosco 24, Milano</span>
+          <a href="tel:+393421428985">+39 342 142 8985</a>
+          <a href="tel:+393356448314">+39 335 644 8314</a>
+          <a href="mailto:cardinalipoligono@libero.it">cardinalipoligono@libero.it</a>
+          <span>Ponte Corvo, 87046 (CS)</span>
         </div>
         <div>
           <h3>Seguici</h3>
           <div className="socials">
-            <a href="https://www.instagram.com/" target="_blank" rel="noreferrer" aria-label="Instagram">
+            <a href="https://www.instagram.com/cardinalipoligono" target="_blank" rel="noreferrer" aria-label="Instagram">
               <Icon name="instagram" />
             </a>
-            <a href="https://www.facebook.com/" target="_blank" rel="noreferrer" aria-label="Facebook">
+            <a href="https://www.facebook.com/share/1BLwivuTJg/" target="_blank" rel="noreferrer" aria-label="Facebook">
               <Icon name="facebook" />
             </a>
           </div>
@@ -325,7 +333,7 @@ export function Footer() {
         <span className="footer-legal">
           <Link to="/privacy">Privacy</Link>
           <Link to="/cookie">Cookie</Link>
-          <Link to="/termini">Termini</Link>
+          <Link to="/termini">Condizioni e regolamento</Link>
         </span>
       </div>
     </footer>

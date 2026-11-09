@@ -35,18 +35,21 @@ export const ACTIVITIES = [
     slug: 'paintball',
     name: 'Paintball',
     icon: 'target',
+    minPlayers: 8,
     copy: 'Campi outdoor con ostacoli tattici. Marcatore, maschera e protezioni inclusi.',
   },
   {
     slug: 'arco',
     name: 'Tiro con l’arco',
     icon: 'bow',
+    minPlayers: 1,
     copy: 'Linee di tiro con bersagli a diverse distanze, con istruttore e attrezzatura.',
   },
   {
     slug: 'carabina',
     name: 'Carabina',
     icon: 'rifle',
+    minPlayers: 1,
     copy: 'Tiro a segno con carabina in poligono attrezzato, sotto la guida dei nostri istruttori.',
   },
 ]

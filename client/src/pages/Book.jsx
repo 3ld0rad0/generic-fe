@@ -21,6 +21,8 @@ import { Button, ButtonLink, Field, Icon } from '../ui.jsx'
 const WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom']
 const EMPTY_FORM = { name: '', email: '', phone: '' }
 const MAX_PLAYERS = 100
+// Il regolamento da accettare riguarda solo il paintball.
+const RULES_ACTIVITY = 'paintball'
 
 const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`
 
@@ -163,23 +165,25 @@ function Summary({ slot, players }) {
 export default function Book() {
   usePageMeta({
     title: 'Prenota una sessione',
-    description: 'Scegli attività, giorno e orario e prenota online paintball, tiro con l’arco o carabina a Milano.',
+    description: 'Scegli attività, giorno e orario e prenota online paintball, tiro con l’arco o carabina a Ponte Corvo (CS).',
   })
   const [params] = useSearchParams()
   const [today] = useState(todayISO)
   const [activity, setActivity] = useState(() => activityBySlug(params.get('activity'))?.slug ?? ACTIVITIES[0].slug)
   const activityRef = useRef(activity)
+  const minPlayers = activityBySlug(activity).minPlayers
   const [slots, setSlots] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [step, setStep] = useState(1)
   const [pickedDate, setPickedDate] = useState(null)
   const [pickedMonth, setPickedMonth] = useState(null)
   const [slotId, setSlotId] = useState(null)
-  const [players, setPlayers] = useState(1)
+  const [players, setPlayers] = useState(minPlayers)
   const [saved, setSaved] = useState(loadCustomer)
   const [form, setForm] = useState(() => saved ?? EMPTY_FORM)
   const [remember, setRemember] = useState(() => !!saved)
   const [consent, setConsent] = useState(false)
+  const [terms, setTerms] = useState(false)
   const [errors, setErrors] = useState({})
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -210,6 +214,7 @@ export default function Book() {
   const chooseActivity = (slug) => {
     if (slug === activity) return
     activityRef.current = slug
+    setPlayers(activityBySlug(slug).minPlayers)
     setActivity(slug)
     setSlots(null)
     setLoadError('')
@@ -267,6 +272,7 @@ export default function Book() {
     if (!email) next.email = 'Inserisci un indirizzo email valido'
     if (!phone) next.phone = 'Inserisci un numero valido (6-15 cifre, es. +39 333 123 4567)'
     if (!consent) next.consent = 'Per prenotare devi accettare l’informativa privacy'
+    if (activity === RULES_ACTIVITY && !terms) next.terms = 'Per prenotare devi dichiarare di aver preso visione del regolamento'
     setErrors(next)
     if (Object.keys(next).length) return
 
@@ -275,7 +281,7 @@ export default function Book() {
     try {
       const { id } = await api('/bookings', {
         method: 'POST',
-        body: { slotId: selectedSlot.id, name, email, phone, players, consent: true },
+        body: { slotId: selectedSlot.id, name, email, phone, players, consent: true, terms },
       })
       if (remember) {
         saveCustomer({ name, email, phone })
@@ -306,9 +312,10 @@ export default function Book() {
     setPickedDate(null)
     setPickedMonth(null)
     setSlotId(null)
-    setPlayers(1)
+    setPlayers(minPlayers)
     setForm(remember ? (loadCustomer() ?? EMPTY_FORM) : EMPTY_FORM)
     setConsent(false)
+    setTerms(false)
     setErrors({})
     setSubmitError('')
     setConfirmed(null)
@@ -486,13 +493,17 @@ export default function Book() {
                 <div className="player-stepper">
                   <div>
                     <label id="players-label">Numero di partecipanti</label>
-                    <small>Indicativo: serve al gestore per organizzare la sessione</small>
+                    <small>
+                      {minPlayers > 1
+                        ? `Minimo ${minPlayers} partecipanti per questa attività`
+                        : 'Indicativo: serve al gestore per organizzare la sessione'}
+                    </small>
                   </div>
                   <div role="group" aria-labelledby="players-label">
                     <button
                       type="button"
-                      onClick={() => setPlayers(Math.max(1, players - 1))}
-                      disabled={players <= 1}
+                      onClick={() => setPlayers(Math.max(minPlayers, players - 1))}
+                      disabled={players <= minPlayers}
                       aria-label="Riduci partecipanti"
                     >
                       <Icon name="minus" size={18} />
@@ -548,6 +559,34 @@ export default function Book() {
                     </small>
                   )}
                 </div>
+                {activity === RULES_ACTIVITY && (
+                  <div className="consent-block">
+                    <label className="check-field">
+                      <input
+                        type="checkbox"
+                        checked={terms}
+                        aria-invalid={errors.terms ? true : undefined}
+                        aria-describedby={errors.terms ? 'terms-error' : undefined}
+                        onChange={(e) => {
+                          setTerms(e.target.checked)
+                          setErrors({ ...errors, terms: undefined })
+                        }}
+                      />
+                      <span>
+                        Dichiaro di aver preso visione del{' '}
+                        <Link to="/termini" target="_blank">
+                          regolamento del paintball
+                        </Link>{' '}
+                        e di accettarlo, per me e per i partecipanti.
+                      </span>
+                    </label>
+                    {errors.terms && (
+                      <small className="check-error" id="terms-error">
+                        {errors.terms}
+                      </small>
+                    )}
+                  </div>
+                )}
                 {submitError && (
                   <p className="alert" role="alert">
                     {submitError}

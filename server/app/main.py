@@ -44,6 +44,7 @@ BOOKING_CUTOFF = timedelta(hours=1)
 TZ = ZoneInfo(os.environ.get("APP_TZ", "Europe/Rome"))
 
 SLOT_COLUMNS = "SELECT id, activity, date, time, price_cents FROM slots"
+MIN_PLAYERS = {"paintball": 8}
 logger = logging.getLogger("uvicorn.error")
 
 
@@ -264,6 +265,10 @@ def create_app(db, admin_password, secret, static_dir=None):
             slot = db.execute(f"{SLOT_COLUMNS} WHERE id = ?", (slot_id,)).fetchone()
             if slot is None:
                 raise HTTPException(404, "Sessione non trovata")
+            if slot["activity"] == "paintball" and b.get("terms") is not True:
+                raise _bad("Per prenotare il paintball devi accettare il regolamento")
+            if players < MIN_PLAYERS.get(slot["activity"], 1):
+                raise _bad(f"Per questa attività servono almeno {MIN_PLAYERS[slot['activity']]} partecipanti")
             taken = db.execute("SELECT id, name, email, phone, players FROM bookings WHERE slot_id = ?", (slot_id,)).fetchone()
             # Stessa richiesta ripetuta (es. retry dopo una risposta persa): restituisce la prenotazione esistente.
             if taken and (taken["name"], taken["email"], taken["phone"], taken["players"]) == (name, email, phone, players):
