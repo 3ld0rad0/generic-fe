@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   email TEXT NOT NULL,
   phone TEXT NOT NULL,
   players INTEGER NOT NULL CHECK (players > 0),
+  package TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_bookings_slot ON bookings(slot_id);
@@ -57,6 +58,11 @@ def _migrate_slots(db):
         db.execute("PRAGMA foreign_keys = ON")
 
 
+def _migrate_package(db):
+    if "package" not in [r["name"] for r in db.execute("PRAGMA table_info(bookings)")]:
+        db.execute("ALTER TABLE bookings ADD COLUMN package TEXT")
+
+
 def normalize_phone(compact):
     """Formato internazionale: 00 diventa +, senza prefisso si assume un numero italiano."""
     if compact.startswith("00"):
@@ -86,6 +92,7 @@ def open_db(file=None):
     db.execute("PRAGMA foreign_keys = ON")
     _migrate_slots(db)
     db.executescript(SCHEMA)
+    _migrate_package(db)
     _migrate_phones(db)
     try:
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_bookings_slot ON bookings(slot_id)")

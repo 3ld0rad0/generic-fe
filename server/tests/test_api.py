@@ -11,7 +11,7 @@ from app.db import open_db
 from app.main import create_app
 
 SLOT = {"activity": "paintball", "date": "2099-01-01", "time": "10:00", "priceCents": 2500}
-PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456", "consent": True, "terms": True}
+PERSON = {"name": "Mario", "email": "m@x.it", "phone": "123456", "consent": True, "terms": True, "package": "plus"}
 
 
 @pytest.fixture
@@ -356,10 +356,10 @@ def test_bookings_per_ip_are_limited(api):
     for i in range(main.BOOKING_IP_MAX):
         r = api.post(
             "/api/bookings",
-            json={"slotId": ids[i], "players": 8, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00", "consent": True, "terms": True},
+            json={"slotId": ids[i], "players": 8, "name": "Anna", "email": f"a{i}@x.it", "phone": f"55500{i}00", "consent": True, "terms": True, "package": "basic"},
         )
         assert r.status_code == 201
-    r = api.post("/api/bookings", json={"slotId": ids[-1], "players": 8, "name": "Anna", "email": "z@x.it", "phone": "5559999", "consent": True, "terms": True})
+    r = api.post("/api/bookings", json={"slotId": ids[-1], "players": 8, "name": "Anna", "email": "z@x.it", "phone": "5559999", "consent": True, "terms": True, "package": "basic"})
     assert r.status_code == 429
 
 
@@ -401,7 +401,7 @@ def test_invalid_contact_fields_are_rejected(api, field, value):
 
 def test_contact_fields_are_normalized_before_saving(api):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
-    person = {"name": "  Jean-Luc   D’Angelo Jr. ", "email": " Mario.Rossi+test@Example.IT ", "phone": " +39 (333) 123-45.67 ", "consent": True, "terms": True}
+    person = {"name": "  Jean-Luc   D’Angelo Jr. ", "email": " Mario.Rossi+test@Example.IT ", "phone": " +39 (333) 123-45.67 ", "consent": True, "terms": True, "package": "gold"}
     assert api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **person}).status_code == 201
     saved = api.get("/api/admin/bookings", headers=api.admin).json()[0]
     assert (saved["name"], saved["email"], saved["phone"]) == ("Jean-Luc D’Angelo Jr.", "mario.rossi+test@example.it", "+393331234567")
@@ -430,6 +430,7 @@ def test_identical_retry_returns_the_existing_booking(api):
     retry = api.post("/api/bookings", json=body)
     assert (first.status_code, retry.status_code) == (201, 200) and retry.json() == first.json()
     assert api.post("/api/bookings", json={**body, "players": 9}).status_code == 409
+    assert api.post("/api/bookings", json={**body, "package": "gold"}).status_code == 409
     assert len(api.get("/api/admin/bookings", headers=api.admin).json()) == 1
 
 
@@ -491,3 +492,22 @@ def test_paintball_needs_at_least_eight_players_other_activities_do_not(api):
     assert book(paintball, 7) == 400
     assert book(paintball, 8) == 201
     assert book(carabina, 1) == 201
+
+
+def test_paintball_booking_stores_the_chosen_package(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    assert api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **PERSON, "package": "gold"}).status_code == 201
+    assert api.get("/api/admin/bookings", headers=api.admin).json()[0]["package"] == "gold"
+
+
+@pytest.mark.parametrize("package", [None, "", "premium", 2500, ["plus"], {"plus": 1}])
+def test_paintball_requires_a_valid_package(api, package):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    assert api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **PERSON, "package": package}).status_code == 400
+    assert api.get("/api/admin/bookings", headers=api.admin).json() == []
+
+
+def test_package_is_ignored_for_other_activities(api):
+    s = api.post("/api/admin/slots", json={**SLOT, "activity": "arco"}, headers=api.admin).json()
+    assert api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON, "package": "nope"}).status_code == 201
+    assert api.get("/api/admin/bookings", headers=api.admin).json()[0]["package"] is None

@@ -314,7 +314,7 @@ export function Footer() {
           <a href="tel:+393421428985">+39 342 142 8985</a>
           <a href="tel:+393356448314">+39 335 644 8314</a>
           <a href="mailto:cardinalipoligono@libero.it">cardinalipoligono@libero.it</a>
-          <span>Ponte Corvo, 87046 (CS)</span>
+          <span>Ponte Corvo, 87046 Montalto Uffugo (CS)</span>
         </div>
         <div>
           <h3>Seguici</h3>

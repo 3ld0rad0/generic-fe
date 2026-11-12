@@ -4,7 +4,7 @@ import { Icon } from '../ui.jsx'
 
 const COMPANY = {
   legalName: 'Cardinali Poligono',
-  address: 'Ponte Corvo, 87046 (CS)',
+  address: 'Ponte Corvo, 87046 Montalto Uffugo (CS)',
   email: 'cardinalipoligono@libero.it',
   phone: '+39 342 142 8985 o +39 335 644 8314',
 }

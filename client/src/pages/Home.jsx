@@ -113,7 +113,7 @@ const features = [
 ]
 
 const steps = [
-  ['target', '01', 'Scegli l’attività', 'Paintball, tiro con l’arco o carabina: scegli la tua sfida.'],
+  ['target', '01', 'Scegli l’attività', 'Paintball, tiro con l’arco o carabina CO2: scegli la tua sfida.'],
   ['calendar', '02', 'Scegli data e orario', 'Controlla le date disponibili in tempo reale.'],
   ['check', '03', 'Conferma', 'Inserisci i tuoi dati. Al resto pensiamo noi.'],
 ]
@@ -125,13 +125,13 @@ export default function Home() {
       <section className="hero" style={{ backgroundImage: images.hero }}>
         <div className="hero-noise" />
         <div className="hero-content">
-          <span className="hero-kicker">Ponte Corvo (CS) · Poligono e outdoor</span>
+          <span className="hero-kicker">Montalto Uffugo (CS) · Poligono e outdoor</span>
           <h1>
             Scegli la tua sfida.
             <br />
             <em>Prenota la tua sessione.</em>
           </h1>
-          <p>Paintball, tiro con l'arco e carabina: precisione, adrenalina e divertimento in un unico posto.</p>
+          <p>Paintball, tiro con l'arco e carabina CO2: precisione, adrenalina e divertimento in un unico posto.</p>
           <ButtonLink to="/prenota" icon="arrow">
             Prenota ora
           </ButtonLink>
@@ -183,13 +183,13 @@ export default function Home() {
           <div className="story-copy">
             <SectionTitle eyebrow="02 · La società" title="Una passione diventata poligono." />
             <p>
-              Siamo appassionati prima ancora che organizzatori. Dal 2012 creiamo esperienze sicure, coinvolgenti e
+              Siamo appassionati prima ancora che organizzatori. Dal 2018 creiamo esperienze sicure, coinvolgenti e
               accessibili a tutti: gruppi di amici, team aziendali e feste speciali.
             </p>
             <p>Il nostro staff ti accompagna dal primo briefing all'ultimo colpo. Tu pensa solo a divertirti.</p>
             <div className="stats">
               <div>
-                <strong>12</strong>
+                <strong>8</strong>
                 <span>anni di attività</span>
               </div>
               <div>
@@ -252,7 +252,7 @@ export default function Home() {
               <a href={MAPS_URL} target="_blank" rel="noreferrer">
                 <Icon name="map" />
                 <span>
-                  <small>Dove siamo</small>Ponte Corvo, 87046 (CS)
+                  <small>Dove siamo</small>Ponte Corvo, 87046 Montalto Uffugo (CS)
                 </span>
               </a>
               <div>
@@ -287,7 +287,7 @@ export default function Home() {
             </div>
             <div className="map-card">
               <strong>Cardinali Poligono</strong>
-              <span>Ponte Corvo, 87046 (CS)</span>
+              <span>Ponte Corvo, 87046 Montalto Uffugo (CS)</span>
               <a href={MAPS_URL} target="_blank" rel="noreferrer">
                 Apri in Google Maps <Icon name="arrow" size={16} />
               </a>

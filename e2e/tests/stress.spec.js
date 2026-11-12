@@ -88,7 +88,7 @@ test('12 · stato obsoleto: lo slot viene cancellato o prenotato mentre l’uten
   await page.getByRole('button', { name: /11:00/ }).click()
   await page.getByRole('button', { name: 'Continua' }).click()
   await fillDetails(page)
-  const other = { slotId: taken, players: 8, name: 'Altro Utente', email: 'altro@stress.it', phone: '3339990001', consent: true, terms: true }
+  const other = { slotId: taken, players: 8, name: 'Altro Utente', email: 'altro@stress.it', phone: '3339990001', consent: true, terms: true, package: 'plus' }
   expect((await request.post('/api/bookings', { data: other, headers: { 'X-Forwarded-For': '10.78.0.1' } })).status()).toBe(201)
   await confirm(page).click()
   await expect(page.getByRole('alert')).toContainText('già prenotata')

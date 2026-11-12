@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   ACTIVITIES,
+  DEFAULT_PACKAGE,
+  PACKAGES,
   activityBySlug,
   api,
   cleanEmail,
@@ -11,6 +13,7 @@ import {
   forgetCustomer,
   formatDate,
   loadCustomer,
+  packageById,
   saveCustomer,
   toISO,
   todayISO,
@@ -23,6 +26,8 @@ const EMPTY_FORM = { name: '', email: '', phone: '' }
 const MAX_PLAYERS = 100
 // Il regolamento da accettare riguarda solo il paintball.
 const RULES_ACTIVITY = 'paintball'
+// Solo il paintball si prenota a pacchetto (prezzo a persona).
+const PACKAGE_ACTIVITY = 'paintball'
 
 const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`
 
@@ -123,13 +128,52 @@ function SlotCard({ slot, selected, onClick }) {
       <span className="slot-radio">{selected && <i />}</span>
       <strong>{slot.time}</strong>
       <span>
-        {euro(slot.price_cents)} <small>/ prenotazione</small>
+        {slot.activity === PACKAGE_ACTIVITY ? (
+          <>
+            da {euro(Math.min(...PACKAGES.map((p) => p.priceCents)))} <small>/ persona</small>
+          </>
+        ) : (
+          <>
+            {euro(slot.price_cents)} <small>/ prenotazione</small>
+          </>
+        )}
       </span>
     </button>
   )
 }
 
-function Summary({ slot, players }) {
+function PackagePicker({ value, onChange }) {
+  return (
+    <div className="package-picker" role="group" aria-labelledby="package-label">
+      <label id="package-label">Scegli il pacchetto</label>
+      <div>
+        {PACKAGES.map((p) => (
+          <button
+            type="button"
+            key={p.id}
+            className={p.id === value ? 'selected' : ''}
+            aria-pressed={p.id === value}
+            onClick={() => onChange(p.id)}
+          >
+            {p.recommended && <em>Consigliato</em>}
+            <b>{p.name}</b>
+            <strong>
+              {euro(p.priceCents)} <small>/ persona</small>
+            </strong>
+            <span>{p.shots} colpi</span>
+            {p.perks.map((perk) => (
+              <small key={perk}>{perk}</small>
+            ))}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Summary({ slot, players, pkg }) {
+  const chosen = slot.activity === PACKAGE_ACTIVITY ? packageById(pkg) : null
+  const total = chosen ? chosen.priceCents * players : slot.price_cents
   return (
     <aside className="summary-card">
       <span className="eyebrow">Il tuo riepilogo</span>
@@ -152,10 +196,20 @@ function Summary({ slot, players }) {
         </span>
         <strong>{players}</strong>
       </div>
+      {chosen && (
+        <div>
+          <span>
+            <Icon name="target" size={19} /> Pacchetto
+          </span>
+          <strong>
+            {chosen.name} · {chosen.shots} colpi
+          </strong>
+        </div>
+      )}
       <hr />
       <div className="total">
         <span>Totale</span>
-        <strong>{euro(slot.price_cents)}</strong>
+        <strong>{euro(total)}</strong>
       </div>
       <small>Pagamento direttamente al poligono</small>
     </aside>
@@ -165,7 +219,7 @@ function Summary({ slot, players }) {
 export default function Book() {
   usePageMeta({
     title: 'Prenota una sessione',
-    description: 'Scegli attività, giorno e orario e prenota online paintball, tiro con l’arco o carabina a Ponte Corvo (CS).',
+    description: 'Scegli attività, giorno e orario e prenota online paintball, tiro con l’arco o carabina CO2 a Ponte Corvo, Montalto Uffugo (CS).',
   })
   const [params] = useSearchParams()
   const [today] = useState(todayISO)
@@ -179,6 +233,7 @@ export default function Book() {
   const [pickedMonth, setPickedMonth] = useState(null)
   const [slotId, setSlotId] = useState(null)
   const [players, setPlayers] = useState(minPlayers)
+  const [pkg, setPkg] = useState(DEFAULT_PACKAGE)
   const [saved, setSaved] = useState(loadCustomer)
   const [form, setForm] = useState(() => saved ?? EMPTY_FORM)
   const [remember, setRemember] = useState(() => !!saved)
@@ -281,7 +336,16 @@ export default function Book() {
     try {
       const { id } = await api('/bookings', {
         method: 'POST',
-        body: { slotId: selectedSlot.id, name, email, phone, players, consent: true, terms },
+        body: {
+          slotId: selectedSlot.id,
+          name,
+          email,
+          phone,
+          players,
+          package: activity === PACKAGE_ACTIVITY ? pkg : undefined,
+          consent: true,
+          terms,
+        },
       })
       if (remember) {
         saveCustomer({ name, email, phone })
@@ -290,7 +354,7 @@ export default function Book() {
         forgetCustomer()
         setSaved(null)
       }
-      setConfirmed({ id, slot: selectedSlot, players, name })
+      setConfirmed({ id, slot: selectedSlot, players, pkg, name })
       setStep(3)
       load()
     } catch (err) {
@@ -313,6 +377,7 @@ export default function Book() {
     setPickedMonth(null)
     setSlotId(null)
     setPlayers(minPlayers)
+    setPkg(DEFAULT_PACKAGE)
     setForm(remember ? (loadCustomer() ?? EMPTY_FORM) : EMPTY_FORM)
     setConsent(false)
     setTerms(false)
@@ -490,6 +555,7 @@ export default function Book() {
                   error={errors.phone}
                   onChange={setField('phone')}
                 />
+                {activity === PACKAGE_ACTIVITY && <PackagePicker value={pkg} onChange={setPkg} />}
                 <div className="player-stepper">
                   <div>
                     <label id="players-label">Numero di partecipanti</label>
@@ -601,7 +667,7 @@ export default function Book() {
                   </Button>
                 </div>
               </form>
-              <Summary slot={selectedSlot} players={players} />
+              <Summary slot={selectedSlot} players={players} pkg={pkg} />
             </div>
           </section>
         )}
@@ -618,7 +684,7 @@ export default function Book() {
               <br />
               Presentati 20 minuti prima per il briefing.
             </p>
-            <Summary slot={confirmed.slot} players={confirmed.players} />
+            <Summary slot={confirmed.slot} players={confirmed.players} pkg={confirmed.pkg} />
             <div className="confirmation-actions">
               <ButtonLink to="/" variant="secondary">
                 Torna alla home

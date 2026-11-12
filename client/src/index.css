@@ -295,6 +295,17 @@ button { color: inherit; }
 .player-stepper > div:last-child { display: flex; align-items: center; gap: 17px; }
 .player-stepper button { width: 35px; height: 35px; display: grid; place-items: center; background: transparent; border: 1px solid #444; border-radius: 6px; cursor: pointer; }
 .player-stepper strong { min-width: 20px; text-align: center; }
+.package-picker { grid-column: 1 / 3; }
+.package-picker > label { display: block; margin-bottom: 10px; color: #ccc; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+.package-picker > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.package-picker button { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 22px 14px 14px; color: #ccc; background: #222; border: 1px solid #333; border-radius: 8px; cursor: pointer; text-align: left; transition: border-color .2s; }
+.package-picker button:hover, .package-picker button.selected { border-color: var(--orange); color: white; }
+.package-picker button.selected { background: color-mix(in srgb, var(--orange) 10%, #222); }
+.package-picker b { font: 700 18px var(--heading); text-transform: uppercase; }
+.package-picker strong { color: var(--orange); font: 700 20px var(--heading); }
+.package-picker small { color: #737373; font-size: 11px; font-weight: 400; }
+.package-picker span { font-size: 12px; font-weight: 600; }
+.package-picker em { position: absolute; top: -9px; left: 12px; padding: 2px 8px; color: #fff; background: var(--orange); border-radius: 4px; font-size: 10px; font-style: normal; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .check-field { grid-column: 1 / 3; display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 11px; }
 .check-field input { accent-color: var(--orange); }.check-field a { color: white; text-decoration: underline; }
 .form-actions { grid-column: 1 / 3; display: flex; justify-content: flex-end; gap: 10px; padding-top: 5px; }
@@ -452,6 +463,7 @@ td strong { color: white; }
   .booking-actions .btn { width: 100%; }
   .personal-form { display: flex; flex-direction: column; padding: 20px; }
   .player-stepper { gap: 10px; }
+  .package-picker > div { grid-template-columns: 1fr; gap: 14px; }
   .check-field { align-items: flex-start; }
   .form-actions { flex-direction: column-reverse; }.form-actions .btn { width: 100%; }
   .summary-card { position: static; }
@@ -709,6 +721,11 @@ td strong { color: white; }
 [data-theme='light'] .field small { color: #d92d20; }
 [data-theme='light'] .player-stepper { background: #efeff1; }
 [data-theme='light'] .player-stepper button { border-color: #c8c8ce; }
+[data-theme='light'] .package-picker > label { color: #444; }
+[data-theme='light'] .package-picker button { color: #444; background: #efeff1; border-color: #dcdce0; }
+[data-theme='light'] .package-picker button:hover, [data-theme='light'] .package-picker button.selected { color: #111; border-color: var(--orange); }
+[data-theme='light'] .package-picker button.selected { background: color-mix(in srgb, var(--orange) 8%, #fff); }
+[data-theme='light'] .package-picker small { color: #5a5a63; }
 [data-theme='light'] .check-field a, [data-theme='light'] .confirmation > p strong, [data-theme='light'] .summary-card .total > span { color: #111; }
 [data-theme='light'] .booking-code b { color: #555; }
 [data-theme='light'] .activity-picker button { color: #444; }

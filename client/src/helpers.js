@@ -18,11 +18,11 @@ export function gridKeys(e) {
 
 const SITE_NAME = 'Cardinali Poligono'
 const DEFAULT_DESCRIPTION =
-  'Paintball, tiro con l’arco e carabina a Ponte Corvo (CS): scegli l’attività, il giorno e l’orario e prenota online la tua sessione.'
+  'Paintball, tiro con l’arco e carabina CO2 a Ponte Corvo, Montalto Uffugo (CS): scegli l’attività, il giorno e l’orario e prenota online la tua sessione.'
 
 export function usePageMeta({ title, description = DEFAULT_DESCRIPTION, noindex = false }) {
   useEffect(() => {
-    const full = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} · Paintball, arco e carabina a Ponte Corvo (CS)`
+    const full = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} · Paintball, arco e carabina CO2 a Ponte Corvo, Montalto Uffugo (CS)`
     document.title = full
     const set = (selector, value) => document.head.querySelector(selector)?.setAttribute('content', value)
     set('meta[name="description"]', description)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ACTIVITIES, activityBySlug, api, euro, formatDate, formatShortDate, getToken, setToken, toISO, todayISO } from '../api.js'
+import { ACTIVITIES, activityBySlug, api, euro, formatDate, formatShortDate, getToken, packageById, setToken, toISO, todayISO } from '../api.js'
 import { downloadCsv } from '../csv.js'
 import { gridKeys, usePageMeta } from '../helpers.js'
 import { Button, Field, Icon, Select } from '../ui.jsx'
@@ -35,6 +35,7 @@ const EMPTY_SESSION = {
   price: '25',
 }
 const activityName = (slug) => activityBySlug(slug)?.name ?? slug
+const packageName = (id) => (id ? (packageById(id)?.name ?? id) : '—')
 const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`
 
 function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, selected, onSelect, loading }) {
@@ -515,6 +516,7 @@ function Dashboard({ onLogout }) {
                       <th>Nome</th>
                       <th>Telefono</th>
                       <th>Partecipanti</th>
+                      <th>Pacchetto</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -535,6 +537,7 @@ function Dashboard({ onLogout }) {
                           <td>{booking?.name ?? '—'}</td>
                           <td>{booking?.phone ?? '—'}</td>
                           <td>{booking ? booking.players : '—'}</td>
+                          <td>{booking ? packageName(booking.package) : '—'}</td>
                         </tr>
                       )
                     })}
@@ -593,6 +596,7 @@ function Dashboard({ onLogout }) {
                               <strong>{booking.name}</strong>
                               <small>
                                 {booking.phone} · {booking.players} {booking.players === 1 ? 'partecipante' : 'partecipanti'}
+                                {booking.package && ` · ${packageName(booking.package)}`}
                               </small>
                             </>
                           ) : (
@@ -742,6 +746,7 @@ function Dashboard({ onLogout }) {
                       <th>Email</th>
                       <th>Telefono</th>
                       <th>Partecipanti</th>
+                      <th>Pacchetto</th>
                       <th>
                         <span className="sr-only">Azioni</span>
                       </th>
@@ -765,6 +770,7 @@ function Dashboard({ onLogout }) {
                             <Icon name="users" size={15} /> {booking.players}
                           </span>
                         </td>
+                        <td>{packageName(booking.package)}</td>
                         <td>
                           <button
                             type="button"

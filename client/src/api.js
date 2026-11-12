@@ -47,14 +47,23 @@ export const ACTIVITIES = [
   },
   {
     slug: 'carabina',
-    name: 'Carabina',
+    name: 'Carabina CO2',
     icon: 'rifle',
     minPlayers: 1,
-    copy: 'Tiro a segno con carabina in poligono attrezzato, sotto la guida dei nostri istruttori.',
+    copy: 'Tiro a segno con carabina CO2 in poligono attrezzato, sotto la guida dei nostri istruttori.',
   },
 ]
 
 export const activityBySlug = (slug) => ACTIVITIES.find((a) => a.slug === slug)
+
+// Pacchetti del paintball, prezzo a persona: allineati a PACKAGES in server/app/main.py.
+export const PACKAGES = [
+  { id: 'basic', name: 'Basic', shots: 150, priceCents: 2000, perks: ['Attrezzatura inclusa'] },
+  { id: 'plus', name: 'Plus', shots: 300, priceCents: 2500, perks: ['Attrezzatura inclusa'], recommended: true },
+  { id: 'gold', name: 'Gold', shots: 500, priceCents: 3500, perks: ['Attrezzatura inclusa', 'Mimetica inclusa'] },
+]
+export const DEFAULT_PACKAGE = 'plus'
+export const packageById = (id) => PACKAGES.find((p) => p.id === id)
 
 export const euro = (cents) =>
   new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)

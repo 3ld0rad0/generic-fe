@@ -45,6 +45,8 @@ TZ = ZoneInfo(os.environ.get("APP_TZ", "Europe/Rome"))
 
 SLOT_COLUMNS = "SELECT id, activity, date, time, price_cents FROM slots"
 MIN_PLAYERS = {"paintball": 8}
+# Pacchetti del paintball: prezzo a persona in centesimi (allineato a client/src/api.js).
+PACKAGES = {"basic": 2000, "plus": 2500, "gold": 3500}
 logger = logging.getLogger("uvicorn.error")
 
 
@@ -269,9 +271,20 @@ def create_app(db, admin_password, secret, static_dir=None):
                 raise _bad("Per prenotare il paintball devi accettare il regolamento")
             if players < MIN_PLAYERS.get(slot["activity"], 1):
                 raise _bad(f"Per questa attività servono almeno {MIN_PLAYERS[slot['activity']]} partecipanti")
-            taken = db.execute("SELECT id, name, email, phone, players FROM bookings WHERE slot_id = ?", (slot_id,)).fetchone()
+            package = b.get("package") if slot["activity"] == "paintball" else None
+            if slot["activity"] == "paintball" and (not _is_str(package) or package not in PACKAGES):
+                raise _bad("Scegli un pacchetto valido")
+            taken = db.execute(
+                "SELECT id, name, email, phone, players, package FROM bookings WHERE slot_id = ?", (slot_id,)
+            ).fetchone()
             # Stessa richiesta ripetuta (es. retry dopo una risposta persa): restituisce la prenotazione esistente.
-            if taken and (taken["name"], taken["email"], taken["phone"], taken["players"]) == (name, email, phone, players):
+            if taken and (taken["name"], taken["email"], taken["phone"], taken["players"], taken["package"]) == (
+                name,
+                email,
+                phone,
+                players,
+                package,
+            ):
                 return JSONResponse({"id": taken["id"]})
             if not _bookable(slot):
                 raise _bad("Prenotazioni chiuse: la sessione inizia tra meno di un'ora o è già passata")
@@ -295,8 +308,8 @@ def create_app(db, admin_password, secret, static_dir=None):
                     429, f"Hai già {MAX_ACTIVE_PER_CONTACT} prenotazioni attive: annullane una per prenotarne un'altra"
                 )
             cur = db.execute(
-                "INSERT INTO bookings (slot_id, name, email, phone, players) VALUES (?, ?, ?, ?, ?)",
-                (slot_id, name, email, phone, players),
+                "INSERT INTO bookings (slot_id, name, email, phone, players, package) VALUES (?, ?, ?, ?, ?, ?)",
+                (slot_id, name, email, phone, players, package),
             )
             recent_bookings[ip] = [*recent, now_s]
         return {"id": cur.lastrowid}
@@ -308,7 +321,7 @@ def create_app(db, admin_password, secret, static_dir=None):
             raise _bad("Data non valida")
         with read_lock:
             rows = reader.execute(
-                """SELECT b.id, b.name, b.email, b.phone, b.players, b.created_at,
+                """SELECT b.id, b.name, b.email, b.phone, b.players, b.package, b.created_at,
                           s.id AS slot_id, s.activity, s.date, s.time
                    FROM bookings b JOIN slots s ON s.id = b.slot_id
                    WHERE ? IS NULL OR s.date >= ?

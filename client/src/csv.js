@@ -1,4 +1,4 @@
-import { activityBySlug, formatShortDate, todayISO } from './api.js'
+import { activityBySlug, formatShortDate, packageById, todayISO } from './api.js'
 
 const COLUMNS = [
   ['Data', (b) => formatShortDate(b.date)],
@@ -8,6 +8,7 @@ const COLUMNS = [
   ['Email', (b) => b.email],
   ['Telefono', (b) => b.phone],
   ['Partecipanti', (b) => b.players],
+  ['Pacchetto', (b) => (b.package ? (packageById(b.package)?.name ?? b.package) : '')],
   ['Prenotata il', (b) => createdAt(b.created_at)],
 ]
 
