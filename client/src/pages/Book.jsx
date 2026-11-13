@@ -13,6 +13,7 @@ import {
   forgetCustomer,
   formatDate,
   loadCustomer,
+  loadPackages,
   packageById,
   saveCustomer,
   toISO,
@@ -265,6 +266,11 @@ export default function Book() {
   useEffect(() => {
     load()
   }, [load])
+
+  const [, setPackagesLoaded] = useState(false)
+  useEffect(() => {
+    loadPackages().then(() => setPackagesLoaded(true), () => {})
+  }, [])
 
   const chooseActivity = (slug) => {
     if (slug === activity) return

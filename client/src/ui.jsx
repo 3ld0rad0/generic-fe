@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
+const HOUR_OPTIONS = [['', '--'], ...Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map((h) => [h, h])]
+const MINUTE_OPTIONS = [['', '--'], ...Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0')).map((m) => [m, m])]
+
 const paths = {
   arrow: (
     <>
@@ -131,11 +134,17 @@ export function Logo() {
   )
 }
 
-export function Button({ children, variant = 'primary', icon, className = '', type = 'button', ...props }) {
+export function Button({ children, variant = 'primary', icon, className = '', type = 'button', loading, disabled, ...props }) {
   return (
-    <button type={type} className={`btn btn-${variant} ${className}`} {...props}>
+    <button
+      type={type}
+      className={`btn btn-${variant} ${className}`}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+    >
       <span>{children}</span>
-      {icon && <Icon name={icon} size={19} />}
+      {loading ? <span className="btn-spinner" aria-hidden="true" /> : icon && <Icon name={icon} size={19} />}
     </button>
   )
 }
@@ -159,6 +168,25 @@ export function Field({ label, error, ...props }) {
   )
 }
 
+// Valore "HH:MM" (o vuoto): ora dalle 08 alle 22, minuti a quarti d'ora.
+export function TimeField({ value, onChange, isBlocked = () => false }) {
+  const [h, m] = value ? value.split(':') : ['', '']
+  const minuteFree = (hh, mm) => !isBlocked(`${hh}:${mm}`)
+  const firstFree = (hh) => MINUTE_OPTIONS.find(([mm]) => mm && minuteFree(hh, mm))?.[0]
+  const hours = HOUR_OPTIONS.map(([hh, text]) => [hh, text, !!hh && !firstFree(hh)])
+  const minutes = MINUTE_OPTIONS.map(([mm, text]) => [mm, text, !!mm && !!h && !minuteFree(h, mm)])
+  const pickHour = (nh) => {
+    if (!nh) return onChange('')
+    onChange(`${nh}:${m && minuteFree(nh, m) ? m : firstFree(nh)}`)
+  }
+  return (
+    <div className="two-fields">
+      <Select label="Ora" value={h} options={hours} onChange={pickHour} />
+      <Select label="Minuti" value={m} options={minutes} disabled={!h} onChange={(nm) => onChange(`${h}:${nm || firstFree(h)}`)} />
+    </div>
+  )
+}
+
 export function Select({ label, srOnly, value, onChange, options, disabled }) {
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
@@ -177,16 +205,24 @@ export function Select({ label, srOnly, value, onChange, options, disabled }) {
     setOpen(true)
   }
   const choose = (i) => {
+    if (options[i][2]) return
     onChange(options[i][0])
     setOpen(false)
+  }
+  const step = (from, dir) => {
+    for (let k = 1; k <= options.length; k++) {
+      const i = (from + dir * k + options.length * k) % options.length
+      if (!options[i][2]) return i
+    }
+    return from
   }
   const onKeyDown = (e) => {
     if (e.key === 'Escape') return open && (e.stopPropagation(), setOpen(false))
     if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) return
     e.preventDefault()
     if (!open) return openMenu()
-    if (e.key === 'ArrowDown') setActive((active + 1) % options.length)
-    else if (e.key === 'ArrowUp') setActive((active - 1 + options.length) % options.length)
+    if (e.key === 'ArrowDown') setActive(step(active, 1))
+    else if (e.key === 'ArrowUp') setActive(step(active, -1))
     else choose(active)
   }
 
@@ -207,13 +243,14 @@ export function Select({ label, srOnly, value, onChange, options, disabled }) {
       </button>
       {open && (
         <ul className="select-menu" role="listbox" aria-label={label}>
-          {options.map(([v, text], i) => (
+          {options.map(([v, text, off], i) => (
             <li
               key={v}
               role="option"
               aria-selected={v === value}
-              className={`${i === active ? 'active' : ''} ${v === value ? 'chosen' : ''}`}
-              onMouseEnter={() => setActive(i)}
+              aria-disabled={off || undefined}
+              className={`${i === active && !off ? 'active' : ''} ${v === value ? 'chosen' : ''} ${off ? 'disabled' : ''}`}
+              onMouseEnter={() => !off && setActive(i)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => choose(i)}
             >

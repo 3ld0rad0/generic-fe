@@ -25,6 +25,13 @@ CREATE TABLE IF NOT EXISTS bookings (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_bookings_slot ON bookings(slot_id);
+CREATE TABLE IF NOT EXISTS packages (
+  id TEXT PRIMARY KEY,
+  shots INTEGER NOT NULL CHECK (shots > 0),
+  price_cents INTEGER NOT NULL CHECK (price_cents >= 0)
+);
+INSERT OR IGNORE INTO packages (id, shots, price_cents) VALUES
+  ('basic', 150, 2000), ('plus', 300, 2500), ('gold', 500, 3500);
 """
 
 
@@ -59,8 +66,17 @@ def _migrate_slots(db):
 
 
 def _migrate_package(db):
-    if "package" not in [r["name"] for r in db.execute("PRAGMA table_info(bookings)")]:
+    cols = [r["name"] for r in db.execute("PRAGMA table_info(bookings)")]
+    if "package" not in cols:
         db.execute("ALTER TABLE bookings ADD COLUMN package TEXT")
+    if "unit_price_cents" not in cols:
+        db.execute("ALTER TABLE bookings ADD COLUMN unit_price_cents INTEGER")
+        # Prenotazioni già esistenti: prezzo corrente del pacchetto, o della sessione.
+        db.execute(
+            """UPDATE bookings SET unit_price_cents = COALESCE(
+                 (SELECT price_cents FROM packages WHERE id = bookings.package),
+                 (SELECT price_cents FROM slots WHERE id = bookings.slot_id))"""
+        )
 
 
 def normalize_phone(compact):

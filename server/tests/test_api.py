@@ -310,6 +310,27 @@ def _at(monkeypatch, hh_mm):
     monkeypatch.setattr(main, "_now", lambda: now)
 
 
+def test_slot_cannot_be_created_in_the_past_even_on_the_same_day(api, monkeypatch):
+    _at(monkeypatch, "10:00")
+    r = api.post("/api/admin/slots", json={**SLOT, "time": "09:00"}, headers=api.admin)
+    assert r.status_code == 400
+    assert "passato" in r.json()["error"]
+    assert api.post("/api/admin/slots", json={**SLOT, "time": "10:00"}, headers=api.admin).status_code == 400
+    assert api.post("/api/admin/slots", json={**SLOT, "time": "10:01"}, headers=api.admin).status_code == 201
+    bulk = {k: v for k, v in SLOT.items() if k != "date"}
+    r = api.post("/api/admin/slots/bulk", json={**bulk, "time": "09:00", "dates": ["2099-01-01", "2099-01-02"]}, headers=api.admin)
+    assert r.json() == {"created": 1, "skipped": 1}
+
+
+def test_slots_of_the_same_activity_must_be_spaced(api):
+    assert api.post("/api/admin/slots", json=SLOT, headers=api.admin).status_code == 201
+    r = api.post("/api/admin/slots", json={**SLOT, "time": "10:30"}, headers=api.admin)
+    assert r.status_code == 409
+    assert "10:00" in r.json()["error"]
+    assert api.post("/api/admin/slots", json={**SLOT, "time": "11:00"}, headers=api.admin).status_code == 201
+    assert api.post("/api/admin/slots", json={**SLOT, "activity": "arco", "time": "10:30"}, headers=api.admin).status_code == 201
+
+
 def test_booking_closes_one_hour_before_the_slot(api, monkeypatch):
     s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
     book = lambda: api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **PERSON}).status_code
@@ -511,3 +532,35 @@ def test_package_is_ignored_for_other_activities(api):
     s = api.post("/api/admin/slots", json={**SLOT, "activity": "arco"}, headers=api.admin).json()
     assert api.post("/api/bookings", json={"slotId": s["id"], "players": 1, **PERSON, "package": "nope"}).status_code == 201
     assert api.get("/api/admin/bookings", headers=api.admin).json()[0]["package"] is None
+
+
+def test_packages_are_listed_and_editable_by_admin(api):
+    assert {p["id"]: p["price_cents"] for p in api.get("/api/packages").json()} == {"basic": 2000, "plus": 2500, "gold": 3500}
+    body = {"shots": 400, "priceCents": 3000}
+    assert api.put("/api/admin/packages/plus", json=body).status_code == 401
+    assert api.put("/api/admin/packages/plus", json=body, headers=api.admin).status_code == 200
+    assert {p["id"]: (p["shots"], p["price_cents"]) for p in api.get("/api/packages").json()}["plus"] == (400, 3000)
+    assert api.put("/api/admin/packages/nope", json=body, headers=api.admin).status_code == 404
+    for bad in ({"shots": 0, "priceCents": 1}, {"shots": 5, "priceCents": -1}, {"shots": "5", "priceCents": 1}, {}):
+        assert api.put("/api/admin/packages/plus", json=bad, headers=api.admin).status_code == 400
+
+
+def test_booking_keeps_the_price_it_was_made_at(api):
+    s = api.post("/api/admin/slots", json=SLOT, headers=api.admin).json()
+    assert api.post("/api/bookings", json={"slotId": s["id"], "players": 8, **PERSON}).status_code == 201
+    api.put("/api/admin/packages/plus", json={"shots": 300, "priceCents": 9900}, headers=api.admin)
+    assert api.get("/api/admin/bookings", headers=api.admin).json()[0]["unit_price_cents"] == 2500
+
+
+def test_admin_can_delete_many_slots_at_once(api):
+    ids = [api.post("/api/admin/slots", json={**SLOT, "date": f"2099-02-0{d}"}, headers=api.admin).json()["id"] for d in (1, 2, 3)]
+    assert api.post("/api/admin/slots/delete", json={"ids": ids}).status_code == 401
+    assert api.post("/api/admin/slots/delete", json={"ids": []}, headers=api.admin).status_code == 400
+    assert api.post("/api/admin/slots/delete", json={"ids": ["x"]}, headers=api.admin).status_code == 400
+    assert api.post("/api/admin/slots/delete", json={"ids": ids[:2] + [9999]}, headers=api.admin).json() == {"deleted": 2}
+    assert [s["id"] for s in api.get("/api/slots").json()] == ids[2:]
+
+
+def test_server_clock_uses_the_venue_timezone(api, monkeypatch):
+    _at(monkeypatch, "09:05")
+    assert api.get("/api/now").json() == {"date": "2099-01-01", "time": "09:05"}

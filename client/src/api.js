@@ -65,6 +65,15 @@ export const PACKAGES = [
 export const DEFAULT_PACKAGE = 'plus'
 export const packageById = (id) => PACKAGES.find((p) => p.id === id)
 
+// Allinea in place prezzi e colpi a quelli salvati dal gestore sul server.
+export async function loadPackages() {
+  const rows = await api('/packages')
+  for (const r of rows) {
+    const p = packageById(r.id)
+    if (p) Object.assign(p, { shots: r.shots, priceCents: r.price_cents })
+  }
+}
+
 export const euro = (cents) =>
   new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 

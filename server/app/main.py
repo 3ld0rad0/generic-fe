@@ -45,8 +45,9 @@ TZ = ZoneInfo(os.environ.get("APP_TZ", "Europe/Rome"))
 
 SLOT_COLUMNS = "SELECT id, activity, date, time, price_cents FROM slots"
 MIN_PLAYERS = {"paintball": 8}
-# Pacchetti del paintball: prezzo a persona in centesimi (allineato a client/src/api.js).
-PACKAGES = {"basic": 2000, "plus": 2500, "gold": 3500}
+# Distanza minima tra due sessioni della stessa attività nello stesso giorno.
+MIN_SLOT_GAP_MIN = 60
+MAX_SHOTS = 10_000
 logger = logging.getLogger("uvicorn.error")
 
 
@@ -244,6 +245,31 @@ def create_app(db, admin_password, secret, static_dir=None):
             [{k: r[k] for k in r.keys() if k != "booked"} | {"bookable": not r["booked"] and _bookable(r)} for r in rows]
         )
 
+    @app.get("/api/now")
+    def server_now():
+        now = _now()
+        return JSONResponse({"date": now.date().isoformat(), "time": now.strftime("%H:%M")}, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/packages")
+    def list_packages():
+        with read_lock:
+            rows = reader.execute("SELECT id, shots, price_cents FROM packages").fetchall()
+        return JSONResponse([dict(r) for r in rows])
+
+    @app.put("/api/admin/packages/{package_id}", dependencies=[Depends(auth.require_admin)])
+    def update_package(package_id: str, body: dict[str, Any] | None = Body(default=None)):
+        b = body or {}
+        shots, price = b.get("shots"), b.get("priceCents")
+        if not _is_pos_int(shots) or shots > MAX_SHOTS:
+            raise _bad("Numero di colpi non valido")
+        if type(price) is not int or not 0 <= price <= MAX_PRICE_CENTS:
+            raise _bad("Prezzo non valido")
+        with lock:
+            cur = db.execute("UPDATE packages SET shots = ?, price_cents = ? WHERE id = ?", (shots, price, package_id))
+        if not cur.rowcount:
+            raise HTTPException(404, "Pacchetto non trovato")
+        return {"id": package_id, "shots": shots, "price_cents": price}
+
     @app.post("/api/bookings", status_code=201)
     def create_booking(request: Request, body: dict[str, Any] | None = Body(default=None)):
         ip = request.client.host if request.client else "unknown"
@@ -272,8 +298,12 @@ def create_app(db, admin_password, secret, static_dir=None):
             if players < MIN_PLAYERS.get(slot["activity"], 1):
                 raise _bad(f"Per questa attività servono almeno {MIN_PLAYERS[slot['activity']]} partecipanti")
             package = b.get("package") if slot["activity"] == "paintball" else None
-            if slot["activity"] == "paintball" and (not _is_str(package) or package not in PACKAGES):
-                raise _bad("Scegli un pacchetto valido")
+            unit_price = slot["price_cents"]
+            if slot["activity"] == "paintball":
+                row = db.execute("SELECT price_cents FROM packages WHERE id = ?", (package,)).fetchone() if _is_str(package) else None
+                if row is None:
+                    raise _bad("Scegli un pacchetto valido")
+                unit_price = row["price_cents"]
             taken = db.execute(
                 "SELECT id, name, email, phone, players, package FROM bookings WHERE slot_id = ?", (slot_id,)
             ).fetchone()
@@ -308,8 +338,8 @@ def create_app(db, admin_password, secret, static_dir=None):
                     429, f"Hai già {MAX_ACTIVE_PER_CONTACT} prenotazioni attive: annullane una per prenotarne un'altra"
                 )
             cur = db.execute(
-                "INSERT INTO bookings (slot_id, name, email, phone, players, package) VALUES (?, ?, ?, ?, ?, ?)",
-                (slot_id, name, email, phone, players, package),
+                "INSERT INTO bookings (slot_id, name, email, phone, players, package, unit_price_cents) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (slot_id, name, email, phone, players, package, unit_price),
             )
             recent_bookings[ip] = [*recent, now_s]
         return {"id": cur.lastrowid}
@@ -321,7 +351,7 @@ def create_app(db, admin_password, secret, static_dir=None):
             raise _bad("Data non valida")
         with read_lock:
             rows = reader.execute(
-                """SELECT b.id, b.name, b.email, b.phone, b.players, b.package, b.created_at,
+                """SELECT b.id, b.name, b.email, b.phone, b.players, b.package, b.unit_price_cents, b.created_at,
                           s.id AS slot_id, s.activity, s.date, s.time
                    FROM bookings b JOIN slots s ON s.id = b.slot_id
                    WHERE ? IS NULL OR s.date >= ?
@@ -340,6 +370,22 @@ def create_app(db, admin_password, secret, static_dir=None):
             raise HTTPException(404, "Prenotazione non trovata")
         return Response(status_code=204)
 
+    def slot_problem(activity, date, time_):
+        """Restituisce (status, messaggio) se la sessione non può essere creata, altrimenti None."""
+        if _starts_at({"date": date, "time": time_}) <= _now():
+            return 400, f"Non puoi creare una sessione nel passato: il {date} alle {time_} è già trascorso"
+        minutes = int(time_[:2]) * 60 + int(time_[3:])
+        for (other,) in db.execute("SELECT time FROM slots WHERE activity = ? AND date = ?", (activity, date)):
+            gap = abs(int(other[:2]) * 60 + int(other[3:]) - minutes)
+            if gap == 0:
+                return 409, f"Sessione già esistente: c'è già una sessione {activity} il {date} alle {time_}"
+            if gap < MIN_SLOT_GAP_MIN:
+                return 409, (
+                    f"Conflitto con la sessione {activity} delle {other}: "
+                    f"servono almeno {MIN_SLOT_GAP_MIN} minuti tra due sessioni della stessa attività"
+                )
+        return None
+
     @app.post("/api/admin/slots", status_code=201, dependencies=[Depends(auth.require_admin)])
     def create_slot(body: dict[str, Any] | None = Body(default=None)):
         b = body or {}
@@ -349,6 +395,9 @@ def create_app(db, admin_password, secret, static_dir=None):
         activity, time_, price = _slot_fields(b)
         try:
             with tx():
+                problem = slot_problem(activity, date, time_)
+                if problem:
+                    raise HTTPException(*problem)
                 cur = db.execute(
                     "INSERT INTO slots (activity, date, time, price_cents) VALUES (?, ?, ?, ?)",
                     (activity, date, time_, price),
@@ -369,12 +418,23 @@ def create_app(db, admin_password, secret, static_dir=None):
         created = 0
         with tx():
             for date in sorted(set(dates)):
+                if slot_problem(activity, date, time_):
+                    continue
                 cur = db.execute(
                     "INSERT OR IGNORE INTO slots (activity, date, time, price_cents) VALUES (?, ?, ?, ?)",
                     (activity, date, time_, price),
                 )
                 created += cur.rowcount
         return {"created": created, "skipped": len(set(dates)) - created}
+
+    @app.post("/api/admin/slots/delete", dependencies=[Depends(auth.require_admin)])
+    def delete_slots_bulk(body: dict[str, Any] | None = Body(default=None)):
+        ids = (body or {}).get("ids")
+        if not isinstance(ids, list) or not 0 < len(ids) <= MAX_BULK_DATES or not all(_is_pos_int(i) for i in ids):
+            raise _bad(f"Indica da 1 a {MAX_BULK_DATES} sessioni")
+        with tx():
+            deleted = sum(db.execute("DELETE FROM slots WHERE id = ?", (i,)).rowcount for i in set(ids))
+        return {"deleted": deleted}
 
     @app.delete("/api/admin/slots/{slot_id}", status_code=204, dependencies=[Depends(auth.require_admin)])
     def delete_slot(slot_id: int):

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ACTIVITIES, activityBySlug, api, euro, formatDate, formatShortDate, getToken, packageById, setToken, toISO, todayISO } from '../api.js'
+import { ACTIVITIES, activityBySlug, api, euro, formatDate, formatShortDate, getToken, loadPackages, packageById, PACKAGES, setToken, toISO, todayISO } from '../api.js'
 import { downloadCsv } from '../csv.js'
 import { gridKeys, usePageMeta } from '../helpers.js'
-import { Button, Field, Icon, Select } from '../ui.jsx'
+import { Button, Field, Icon, Select, TimeField } from '../ui.jsx'
 
 const WEEKDAYS = [
   ['Lun', 1],
@@ -36,7 +36,36 @@ const EMPTY_SESSION = {
 }
 const activityName = (slug) => activityBySlug(slug)?.name ?? slug
 const packageName = (id) => (id ? (packageById(id)?.name ?? id) : '—')
+// Pacchetto con il prezzo a persona applicato al momento della prenotazione.
+const bookingPackage = (b) =>
+  b.package ? `${packageName(b.package)}${b.unit_price_cents == null ? '' : ` · ${euro(b.unit_price_cents)}`}` : '—'
+const sessionLabel = (activity, date, time) => `${activityName(activity)} · ${formatShortDate(date)} · ${time}`
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
+// Il paintball si paga a pacchetto: il prezzo del turno è solo un valore di servizio (il più basso).
+const minPackageCents = () => Math.min(...PACKAGES.map((p) => p.priceCents))
+const sessionPriceCents = (activity, price) =>
+  activity === 'paintball' ? minPackageCents() : Math.round(Number(price) * 100)
+const priceLabel = (s) => (s.activity === 'paintball' ? `da ${euro(minPackageCents())} / persona` : euro(s.price_cents))
 const monthKey = (year, month) => `${year}-${String(month + 1).padStart(2, '0')}`
+const toMinutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3))
+// Distanza minima tra sessioni della stessa attività: allineata a MIN_SLOT_GAP_MIN del server.
+const MIN_GAP = 60
+
+// Orari non selezionabili: già trascorsi oggi o troppo vicini a una sessione esistente.
+// `clock` è l'ora del server (stessa del controllo lato server); senza, si usa quella del browser.
+function blockedTimes(slots, clock, today, activity, date) {
+  if (!date) return () => false
+  const browser = new Date()
+  const nowDate = clock?.date ?? today
+  const nowMin = clock
+    ? clock.minutes + Math.floor((Date.now() - clock.at) / 60000)
+    : browser.getHours() * 60 + browser.getMinutes()
+  const taken = (slots ?? []).filter((s) => s.activity === activity && s.date === date).map((s) => toMinutes(s.time))
+  return (t) => {
+    const min = toMinutes(t)
+    return date < nowDate || (date === nowDate && min <= nowMin) || taken.some((x) => Math.abs(x - min) < MIN_GAP)
+  }
+}
 
 function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, selected, onSelect, loading }) {
   const [year, m] = month
@@ -45,7 +74,8 @@ function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, sele
   const label = new Date(year, m, 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
   const byDate = {}
   for (const s of slots) {
-    const d = (byDate[s.date] ||= { free: 0, booked: 0, closed: 0 })
+    const d = (byDate[s.date] ||= { free: 0, booked: 0, closed: 0, acts: new Set() })
+    d.acts.add(s.activity)
     if (bookingBySlot[s.id]) d.booked += 1
     else if (s.bookable) d.free += 1
     else d.closed += 1
@@ -97,6 +127,13 @@ function AdminCalendar({ slots, bookingBySlot, today, month, onMonthChange, sele
               onClick={() => onSelect(iso)}
             >
               {i + 1}
+              {d && (
+                <span className="day-acts" aria-hidden="true">
+                  {ACTIVITIES.filter((a) => d.acts.has(a.slug)).map((a) => (
+                    <Icon key={a.slug} name={a.icon} size={11} />
+                  ))}
+                </span>
+              )}
               {d && (d.free > 0 || d.booked > 0) && (
                 <span className="day-dots" aria-hidden="true">
                   {d.free > 0 && <i className="dot-free" />}
@@ -184,21 +221,164 @@ function Login({ onLogin }) {
   )
 }
 
+function ConfirmDialog({ message, busy, onConfirm, onCancel }) {
+  return (
+    <div className="modal-backdrop" onClick={onCancel} onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+      <div
+        className="modal-card confirm-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        aria-describedby="confirm-message"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="confirm-icon">
+          <Icon name="trash" size={24} />
+        </span>
+        <h3 id="confirm-title">Conferma eliminazione</h3>
+        <p id="confirm-message">{message}</p>
+        <div className="modal-actions">
+          <Button variant="ghost" autoFocus onClick={onCancel}>
+            Annulla
+          </Button>
+          <Button variant="danger" icon="trash" loading={busy} onClick={onConfirm}>
+            Elimina
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PackagesModal({ onClose, onError }) {
+  const [rows, setRows] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    loadPackages().then(
+      () => setRows(PACKAGES.map((p) => ({ id: p.id, shots: String(p.shots), price: String(p.priceCents / 100) }))),
+      (e) => setError(e.message),
+    )
+  }, [])
+
+  const setField = (id, key) => (e) => setRows(rows.map((r) => (r.id === id ? { ...r, [key]: e.target.value } : r)))
+
+  const save = async (e) => {
+    e.preventDefault()
+    const parsed = rows.map((r) => ({ id: r.id, shots: Number(r.shots), priceCents: Math.round(Number(r.price) * 100) }))
+    if (parsed.some((p) => !Number.isInteger(p.shots) || p.shots <= 0 || !(p.priceCents >= 0))) {
+      return setError('Colpi o prezzo non validi')
+    }
+    setSaving(true)
+    setError('')
+    try {
+      for (const { id, shots, priceCents } of parsed) {
+        await api(`/admin/packages/${id}`, { method: 'PUT', admin: true, body: { shots, priceCents } })
+        Object.assign(packageById(id), { shots, priceCents })
+      }
+      onClose()
+    } catch (err) {
+      if (err.status === 401) onError(err)
+      else setError(err.message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <form
+        className="modal-card day-add"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pacchetti paintball"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={save}
+        noValidate
+      >
+        <h3>
+          <span className="day-add-icon">
+            <Icon name="target" size={22} />
+          </span>
+          <span>
+            Pacchetti paintball
+            <small>Colpi e prezzo a persona</small>
+          </span>
+        </h3>
+        {rows === null ? (
+          <span className="spinner" />
+        ) : (
+          rows.map((row) => {
+            const pkg = packageById(row.id)
+            return (
+              <fieldset className={`package-card ${pkg.recommended ? 'recommended' : ''}`} key={row.id}>
+                <legend className="sr-only">{pkg.name}</legend>
+                <div className="package-card-head">
+                  <b>{pkg.name}</b>
+                  {pkg.recommended && <em>Consigliato</em>}
+                  <small>{pkg.perks.join(' · ')}</small>
+                </div>
+                <div className="two-fields">
+                  <Field label="Colpi" type="number" min="1" step="1" value={row.shots} onChange={setField(row.id, 'shots')} />
+                  <Field
+                    label="€ / persona"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={row.price}
+                    onChange={setField(row.id, 'price')}
+                  />
+                </div>
+              </fieldset>
+            )
+          })
+        )}
+        {error && (
+          <p className="alert" role="alert">
+            {error}
+          </p>
+        )}
+        <small className="modal-note">Le prenotazioni già effettuate mantengono il prezzo con cui sono state fatte.</small>
+        <div className="modal-actions">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Annulla
+          </Button>
+          <Button type="submit" loading={saving} disabled={rows === null}>
+            Salva
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function Dashboard({ onLogout }) {
   const [tab, setTab] = useState('today')
   const [bookings, setBookings] = useState(null)
   const [slots, setSlots] = useState(null)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(null)
+  const [confirm, setConfirm] = useState(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  const [clock, setClock] = useState(null)
+  const [selected, setSelected] = useState([])
   const [query, setQuery] = useState('')
   const [activityFilter, setActivityFilter] = useState('')
+  const [todayActivity, setTodayActivity] = useState('')
+  const [bookingActivity, setBookingActivity] = useState('')
   const [bookingPeriod, setBookingPeriod] = useState('upcoming')
   const [slotPeriod, setSlotPeriod] = useState('upcoming')
+  const [slotActivity, setSlotActivity] = useState('')
   const [slotDate, setSlotDate] = useState('')
   const [sessionForm, setSessionForm] = useState(EMPTY_SESSION)
   const [saving, setSaving] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
+  const [packagesOpen, setPackagesOpen] = useState(false)
+  const [, setPackagesLoaded] = useState(false)
+  useEffect(() => {
+    loadPackages().then(() => setPackagesLoaded(true), () => {})
+  }, [packagesOpen])
   const [dayForm, setDayForm] = useState({ activity: ACTIVITIES[0].slug, time: '', price: '25' })
   const [today] = useState(todayISO)
   const [calMonth, setCalMonth] = useState(() => [Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1])
@@ -243,11 +423,15 @@ function Dashboard({ onLogout }) {
 
   const load = useCallback(
     (isCurrent = () => true) =>
-      Promise.all([api(`/slots?from=${from}`), api(`/admin/bookings?from=${from}`, { admin: true })]).then(([s, b]) => {
-        if (!isCurrent()) return
-        setSlots(s)
-        setBookings(b)
-      }, handleError),
+      Promise.all([api(`/slots?from=${from}`), api(`/admin/bookings?from=${from}`, { admin: true }), api('/now')]).then(
+        ([s, b, now]) => {
+          if (!isCurrent()) return
+          setSlots(s)
+          setBookings(b)
+          setClock({ date: now.date, minutes: toMinutes(now.time), at: Date.now() })
+        },
+        handleError,
+      ),
     [handleError, from],
   )
 
@@ -275,7 +459,7 @@ function Dashboard({ onLogout }) {
     e.preventDefault()
     const { mode, activity, date, endDate, days, time, price } = sessionForm
     const batch = mode === 'batch'
-    const priceCents = Math.round(Number(price) * 100)
+    const priceCents = sessionPriceCents(activity, price)
     if (!date || !time) return setError('Inserisci data e ora della sessione')
     if (batch && !endDate) return setError('Inserisci la data di fine del periodo')
     if (batch && endDate < date) return setError('La data di fine precede quella di inizio')
@@ -283,7 +467,7 @@ function Dashboard({ onLogout }) {
     if (!dates.length) return setError('Nessun giorno selezionato nel periodo')
     if (dates.length > MAX_DATES) return setError(`Massimo ${MAX_DATES} sessioni alla volta`)
     setSaving(true)
-    setNotice('')
+    setNotice(null)
     let result
     const ok = await run(async () => {
       result = batch
@@ -292,13 +476,19 @@ function Dashboard({ onLogout }) {
     })
     setSaving(false)
     if (!ok) return
-    if (!batch) setNotice('Sessione creata')
+    const priceInfo = activity === 'paintball' ? 'Prezzo in base al pacchetto' : euro(priceCents)
+    if (!batch) setNotice({ title: 'Sessione creata', detail: [sessionLabel(activity, date, time), priceInfo] })
     else {
       const { created, skipped } = result
-      setNotice(
-        `${created} ${created === 1 ? 'sessione creata' : 'sessioni create'}` +
-          (skipped ? `, ${skipped} già ${skipped === 1 ? 'esistente' : 'esistenti'}` : ''),
-      )
+      if (!created) return setError('Nessuna sessione creata: le date scelte sono già trascorse, già occupate o in conflitto con altre sessioni')
+      setNotice({
+        title: plural(created, 'sessione creata', 'sessioni create'),
+        detail: [
+          `${activityName(activity)} · ${time} · dal ${formatShortDate(date)} al ${formatShortDate(endDate)}`,
+          priceInfo,
+          ...(skipped ? [`${plural(skipped, 'saltata', 'saltate')} (passate o in conflitto)`] : []),
+        ],
+      })
     }
     setSessionForm({ ...sessionForm, date: '', endDate: '', time: '' })
   }
@@ -308,24 +498,76 @@ function Dashboard({ onLogout }) {
     const { activity, time, price } = dayForm
     if (!time) return setError('Inserisci l\'ora della sessione')
     setSaving(true)
-    setNotice('')
+    setNotice(null)
+    const priceCents = sessionPriceCents(activity, price)
     const ok = await run(() =>
       api('/admin/slots', {
         method: 'POST',
         admin: true,
-        body: { activity, date: calDate, time, priceCents: Math.round(Number(price) * 100) },
+        body: { activity, date: calDate, time, priceCents },
       }),
     )
     setSaving(false)
     if (!ok) return
-    setNotice('Sessione creata')
+    setNotice({
+      title: 'Sessione creata',
+      detail: [sessionLabel(activity, calDate, time), activity === 'paintball' ? 'Prezzo in base al pacchetto' : euro(priceCents)],
+    })
     setAddOpen(false)
     setDayForm({ ...dayForm, time: '' })
   }
 
-  const remove = (path, message) => {
-    if (window.confirm(message)) run(() => api(path, { method: 'DELETE', admin: true }))
+  const askConfirm = (message, action, done) =>
+    setConfirm({
+      message,
+      onConfirm: async () => {
+        setConfirmBusy(true)
+        setNotice(null)
+        const ok = await run(action)
+        setConfirmBusy(false)
+        setConfirm(null)
+        if (ok) setNotice(done)
+      },
+    })
+
+  const remove = (path, message, done) => askConfirm(message, () => api(path, { method: 'DELETE', admin: true }), done)
+
+  const deleteSelected = () => {
+    const withBookings = chosen.filter((s) => bookedBySlot[s.id]).length
+    askConfirm(
+      `Eliminare ${plural(chosen.length, 'sessione', 'sessioni')}?` +
+        (withBookings ? ` Verranno cancellate anche le prenotazioni di ${plural(withBookings, 'sessione', 'sessioni')}.` : ''),
+      () => api('/admin/slots/delete', { method: 'POST', admin: true, body: { ids: chosen.map((s) => s.id) } }),
+      {
+        title: plural(chosen.length, 'sessione eliminata', 'sessioni eliminate'),
+        detail: withBookings ? [`Con prenotazioni annullate in ${plural(withBookings, 'sessione', 'sessioni')}`] : undefined,
+      },
+    )
   }
+
+  // Un orario scelto che diventa non valido (cambio di attività o data) viene azzerato.
+  useEffect(() => {
+    if (dayForm.time && blockedTimes(slots, clock, today, dayForm.activity, calDate)(dayForm.time)) {
+      setDayForm((f) => ({ ...f, time: '' }))
+    }
+  }, [slots, clock, today, dayForm.activity, dayForm.time, calDate])
+
+  useEffect(() => {
+    const date = sessionForm.mode === 'single' ? sessionForm.date : ''
+    if (sessionForm.time && blockedTimes(slots, clock, today, sessionForm.activity, date)(sessionForm.time)) {
+      setSessionForm((f) => ({ ...f, time: '' }))
+    }
+  }, [slots, clock, today, sessionForm.activity, sessionForm.mode, sessionForm.date, sessionForm.time])
+
+  useEffect(() => {
+    if (addOpen) setError('')
+  }, [addOpen])
+
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(null), 3500) // in sync con toast-bar in index.css
+    return () => clearTimeout(id)
+  }, [notice])
 
   const setField = (key) => (e) => setSessionForm({ ...sessionForm, [key]: e.target.value })
   const toggleDay = (day) =>
@@ -340,12 +582,12 @@ function Dashboard({ onLogout }) {
   const visibleBookings = (bookings ?? []).filter(
     (b) =>
       inPeriod(b.date, bookingPeriod) &&
-      (!activityFilter || b.activity === activityFilter) &&
+      (!bookingActivity || b.activity === bookingActivity) &&
       (!q || b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q)),
   )
   const visibleSlots = (slots ?? []).filter(
     (s) =>
-      (!activityFilter || s.activity === activityFilter) &&
+      (!slotActivity || s.activity === slotActivity) &&
       (slotDate ? s.date === slotDate : inPeriod(s.date, slotPeriod)),
   )
   const upcoming = (bookings ?? []).filter((b) => b.date >= today)
@@ -359,16 +601,17 @@ function Dashboard({ onLogout }) {
   }
   const calendarSlots = (slots ?? []).filter((s) => !activityFilter || s.activity === activityFilter)
   const daySlots = calendarSlots.filter((s) => s.date === calDate)
-  const todaySlots = calendarSlots.filter((s) => s.date === today)
+  const todaySlots = (slots ?? []).filter((s) => s.date === today && (!todayActivity || s.activity === todayActivity))
   const todayBooked = todaySlots.filter((s) => bookingBySlot[s.id])
   const todayPlayers = todayBooked.reduce((sum, s) => sum + bookingBySlot[s.id].players, 0)
+  const chosen = visibleSlots.filter((s) => selected.includes(s.id))
 
   return (
     <main className="dashboard">
       <header className="dashboard-head">
         <div>
           <span className="manager-mark">
-            <Icon name="target" size={25} />
+            <span className="logo-wings" />
           </span>
           <div>
             <strong>
@@ -402,16 +645,40 @@ function Dashboard({ onLogout }) {
             </span>
           </div>
         </div>
-        {error && (
-          <p className="alert" role="alert">
-            {error}
-          </p>
-        )}
-        {notice && (
-          <p className="notice" role="status">
-            {notice}
-          </p>
-        )}
+        {confirm && <ConfirmDialog {...confirm} busy={confirmBusy} onCancel={() => setConfirm(null)} />}
+        <div className="toast-stack">
+          {error && !addOpen && (
+            <div className="toast toast-error" role="alert">
+              <span className="toast-icon" aria-hidden="true">
+                !
+              </span>
+              <div className="toast-text">
+                <strong>Operazione non riuscita</strong>
+                <small>{error}</small>
+              </div>
+              <button type="button" className="toast-close" aria-label="Chiudi notifica" onClick={() => setError('')}>
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+          )}
+          {notice && (
+            <div className="toast" role="status">
+              <span className="toast-icon">
+                <Icon name="check" size={18} />
+              </span>
+              <div className="toast-text">
+                <strong>{notice.title}</strong>
+                {notice.detail?.map((line) => (
+                  <small key={line}>{line}</small>
+                ))}
+              </div>
+              <button type="button" className="toast-close" aria-label="Chiudi notifica" onClick={() => setNotice(null)}>
+                <Icon name="close" size={16} />
+              </button>
+              <span className="toast-bar" aria-hidden="true" />
+            </div>
+          )}
+        </div>
         <div className="dashboard-stats">
           <div>
             <span>Prenotazioni oggi</span>
@@ -425,20 +692,6 @@ function Dashboard({ onLogout }) {
             <span>Sessioni attive</span>
             <strong>{loading ? '–' : slots.filter((s) => s.date >= today).length}</strong>
           </div>
-        </div>
-        <div className="activity-picker filter" role="group" aria-label="Filtra per attività">
-          {[{ slug: '', name: 'Tutte', icon: 'calendar' }, ...ACTIVITIES].map((a) => (
-            <button
-              type="button"
-              key={a.slug}
-              className={a.slug === activityFilter ? 'selected' : ''}
-              aria-pressed={a.slug === activityFilter}
-              onClick={() => setActivityFilter(a.slug)}
-            >
-              <Icon name={a.icon} size={20} />
-              {a.name}
-            </button>
-          ))}
         </div>
         <div className="tabs" role="tablist">
           <button
@@ -478,6 +731,22 @@ function Dashboard({ onLogout }) {
             Calendario
           </button>
         </div>
+        {tab === 'calendar' && (
+          <div className="activity-picker filter" role="group" aria-label="Filtra per attività">
+            {[{ slug: '', name: 'Tutte', icon: 'calendar' }, ...ACTIVITIES].map((a) => (
+              <button
+                type="button"
+                key={a.slug}
+                className={a.slug === activityFilter ? 'selected' : ''}
+                aria-pressed={a.slug === activityFilter}
+                onClick={() => setActivityFilter(a.slug)}
+              >
+                <Icon name={a.icon} size={20} />
+                {a.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         {tab === 'today' && (
           <section className="admin-panel today-panel">
@@ -490,9 +759,18 @@ function Dashboard({ onLogout }) {
                   {todayBooked.length === 1 ? 'prenotata' : 'prenotate'}, {todayPlayers} partecipanti attesi.
                 </p>
               </div>
-              <Button className="btn-sm no-print" variant="ghost" disabled={todaySlots.length === 0} onClick={() => window.print()}>
-                Stampa
-              </Button>
+              <div className="panel-tools no-print">
+                <Select
+                  label="Attività"
+                  srOnly
+                  value={todayActivity}
+                  options={[['', 'Tutte le attività'], ...ACTIVITY_OPTIONS]}
+                  onChange={setTodayActivity}
+                />
+                <Button className="btn-sm" variant="ghost" disabled={todaySlots.length === 0} onClick={() => window.print()}>
+                  Stampa
+                </Button>
+              </div>
             </div>
             {loading ? (
               <div className="state-card">
@@ -537,7 +815,7 @@ function Dashboard({ onLogout }) {
                           <td>{booking?.name ?? '—'}</td>
                           <td>{booking?.phone ?? '—'}</td>
                           <td>{booking ? booking.players : '—'}</td>
-                          <td>{booking ? packageName(booking.package) : '—'}</td>
+                          <td>{booking ? bookingPackage(booking) : '—'}</td>
                         </tr>
                       )
                     })}
@@ -600,7 +878,7 @@ function Dashboard({ onLogout }) {
                               </small>
                             </>
                           ) : (
-                            <small>{euro(s.price_cents)}</small>
+                            <small>{priceLabel(s)}</small>
                           )}
                         </div>
                         <span className={`status-pill ${status}`}>
@@ -612,7 +890,10 @@ function Dashboard({ onLogout }) {
                               type="button"
                               className="mini-btn danger"
                               onClick={() =>
-                                remove(`/admin/bookings/${booking.id}`, `Annullare la prenotazione di ${booking.name}?`)
+                                remove(`/admin/bookings/${booking.id}`, `Annullare la prenotazione di ${booking.name}?`, {
+                                  title: 'Prenotazione annullata',
+                                  detail: [booking.name, sessionLabel(s.activity, s.date, s.time)],
+                                })
                               }
                             >
                               Annulla prenotazione
@@ -627,6 +908,13 @@ function Dashboard({ onLogout }) {
                                 booking
                                   ? `Eliminare la sessione? Verrà cancellata anche la prenotazione di ${booking.name}.`
                                   : 'Eliminare la sessione?',
+                                {
+                                  title: 'Sessione eliminata',
+                                  detail: [
+                                    sessionLabel(s.activity, s.date, s.time),
+                                    ...(booking ? [`Prenotazione di ${booking.name} annullata`] : []),
+                                  ],
+                                },
                               )
                             }
                           >
@@ -654,22 +942,24 @@ function Dashboard({ onLogout }) {
                     onSubmit={addDaySession}
                     noValidate
                   >
-                    <h3>Nuova sessione · {formatShortDate(calDate)}</h3>
+                    <h3>
+                      <span className="day-add-icon">
+                        <Icon name={activityBySlug(dayForm.activity)?.icon ?? 'target'} size={22} />
+                      </span>
+                      Nuova sessione · {formatShortDate(calDate)}
+                    </h3>
                     <Select
                       label="Attività"
                       value={dayForm.activity}
                       options={ACTIVITY_OPTIONS}
                       onChange={(activity) => setDayForm({ ...dayForm, activity })}
                     />
-                    <div className="two-fields">
-                      <Field
-                        label="Ora"
-                        type="time"
-                        required
-                        autoFocus
-                        value={dayForm.time}
-                        onChange={(e) => setDayForm({ ...dayForm, time: e.target.value })}
-                      />
+                    <TimeField
+                      value={dayForm.time}
+                      isBlocked={blockedTimes(slots, clock, today, dayForm.activity, calDate)}
+                      onChange={(time) => setDayForm({ ...dayForm, time })}
+                    />
+                    {dayForm.activity !== 'paintball' && (
                       <Field
                         label="Prezzo (€)"
                         type="number"
@@ -679,12 +969,28 @@ function Dashboard({ onLogout }) {
                         value={dayForm.price}
                         onChange={(e) => setDayForm({ ...dayForm, price: e.target.value })}
                       />
-                    </div>
+                    )}
+                    {dayForm.activity === 'paintball' && (
+                      <ul className="day-packages" aria-label="Pacchetti paintball attivi">
+                        {PACKAGES.map((p) => (
+                          <li key={p.id}>
+                            <b>{p.name}</b>
+                            <span>{p.shots} colpi</span>
+                            <strong>{euro(p.priceCents)}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {error && (
+                      <p className="alert" role="alert">
+                        {error}
+                      </p>
+                    )}
                     <div className="modal-actions">
                       <Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>
                         Annulla
                       </Button>
-                      <Button type="submit" icon="plus" disabled={saving}>
+                      <Button type="submit" icon="plus" loading={saving}>
                         Aggiungi
                       </Button>
                     </div>
@@ -704,6 +1010,13 @@ function Dashboard({ onLogout }) {
               </div>
               <div className="panel-tools">
                 <Select label="Mostra" srOnly value={bookingPeriod} options={PERIODS} onChange={setBookingPeriod} />
+                <Select
+                  label="Attività"
+                  srOnly
+                  value={bookingActivity}
+                  options={[['', 'Tutte le attività'], ...ACTIVITY_OPTIONS]}
+                  onChange={setBookingActivity}
+                />
                 <label className="search">
                   <span aria-hidden="true">⌕</span>
                   <input
@@ -770,14 +1083,17 @@ function Dashboard({ onLogout }) {
                             <Icon name="users" size={15} /> {booking.players}
                           </span>
                         </td>
-                        <td>{packageName(booking.package)}</td>
+                        <td>{bookingPackage(booking)}</td>
                         <td>
                           <button
                             type="button"
                             className="delete"
                             aria-label={`Elimina prenotazione di ${booking.name}`}
                             onClick={() =>
-                              remove(`/admin/bookings/${booking.id}`, `Cancellare la prenotazione di ${booking.name}?`)
+                              remove(`/admin/bookings/${booking.id}`, `Cancellare la prenotazione di ${booking.name}?`, {
+                                title: 'Prenotazione eliminata',
+                                detail: [booking.name, sessionLabel(booking.activity, booking.date, booking.time)],
+                              })
                             }
                           >
                             <Icon name="trash" size={18} />
@@ -851,8 +1167,12 @@ function Dashboard({ onLogout }) {
                   </div>
                 </>
               )}
-              <div className="two-fields">
-                <Field label="Ora" type="time" required value={sessionForm.time} onChange={setField('time')} />
+              <TimeField
+                value={sessionForm.time}
+                isBlocked={blockedTimes(slots, clock, today, sessionForm.activity, sessionForm.mode === 'single' ? sessionForm.date : '')}
+                onChange={(time) => setSessionForm({ ...sessionForm, time })}
+              />
+              {sessionForm.activity !== 'paintball' && (
                 <Field
                   label="Prezzo (€)"
                   type="number"
@@ -862,11 +1182,17 @@ function Dashboard({ onLogout }) {
                   value={sessionForm.price}
                   onChange={setField('price')}
                 />
-              </div>
-              <Button type="submit" icon="plus" disabled={saving}>
+              )}
+              <Button type="submit" icon="plus" loading={saving}>
                 Aggiungi turni
               </Button>
+              {sessionForm.activity === 'paintball' && (
+                <Button type="button" variant="ghost" onClick={() => setPackagesOpen(true)}>
+                  Modifica pacchetti
+                </Button>
+              )}
             </form>
+            {packagesOpen && <PackagesModal onClose={() => setPackagesOpen(false)} onError={handleError} />}
             <div className="admin-panel session-list">
               <div>
                 <h2>Sessioni</h2>
@@ -874,7 +1200,24 @@ function Dashboard({ onLogout }) {
               </div>
               <div className="session-filters">
                 <Select label="Mostra" value={slotPeriod} options={PERIODS} disabled={!!slotDate} onChange={setSlotPeriod} />
+                <Select label="Attività" value={slotActivity} options={[['', 'Tutte'], ...ACTIVITY_OPTIONS]} onChange={setSlotActivity} />
                 <Field label="Data" type="date" value={slotDate} onChange={(e) => setSlotDate(e.target.value)} />
+              </div>
+              <div className="session-bulk">
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={visibleSlots.length > 0 && chosen.length === visibleSlots.length}
+                    disabled={visibleSlots.length === 0}
+                    onChange={(e) => setSelected(e.target.checked ? visibleSlots.map((s) => s.id) : [])}
+                  />
+                  <span>{chosen.length ? plural(chosen.length, 'selezionata', 'selezionate') : 'Seleziona tutte'}</span>
+                </label>
+                {chosen.length > 0 && (
+                  <Button className="btn-sm" variant="ghost" icon="trash" onClick={deleteSelected}>
+                    Elimina selezionate
+                  </Button>
+                )}
               </div>
               <div className="session-scroll">
                 {loading ? (
@@ -892,6 +1235,15 @@ function Dashboard({ onLogout }) {
                   visibleSlots.map((session) => (
                     <article key={session.id}>
                       <div className="session-date">
+                        <input
+                          type="checkbox"
+                          className="row-check"
+                          aria-label={`Seleziona ${sessionLabel(session.activity, session.date, session.time)}`}
+                          checked={selected.includes(session.id)}
+                          onChange={() =>
+                            setSelected((cur) => (cur.includes(session.id) ? cur.filter((id) => id !== session.id) : [...cur, session.id]))
+                          }
+                        />
                         <Icon name="calendar" />
                         <span>
                           <strong>{formatShortDate(session.date)}</strong>
@@ -908,21 +1260,32 @@ function Dashboard({ onLogout }) {
                       </div>
                       <div>
                         <span>Prezzo</span>
-                        <strong>{euro(session.price_cents)}</strong>
+                        <strong>{priceLabel(session)}</strong>
                       </div>
-                      <button
-                        type="button"
-                        className="delete"
-                        aria-label={`Elimina sessione ${activityName(session.activity)} del ${formatShortDate(session.date)} alle ${session.time}`}
-                        onClick={() =>
-                          remove(
-                            `/admin/slots/${session.id}`,
-                            'Eliminare la sessione? Verranno cancellate anche tutte le sue prenotazioni.',
-                          )
-                        }
-                      >
-                        <Icon name="trash" size={18} />
-                      </button>
+                      <span className="row-actions">
+                        <button
+                          type="button"
+                          className="delete"
+                          aria-label={`Elimina sessione ${activityName(session.activity)} del ${formatShortDate(session.date)} alle ${session.time}`}
+                          onClick={() =>
+                            remove(
+                              `/admin/slots/${session.id}`,
+                              'Eliminare la sessione? Verranno cancellate anche tutte le sue prenotazioni.',
+                              {
+                                title: 'Sessione eliminata',
+                                detail: [
+                                  sessionLabel(session.activity, session.date, session.time),
+                                  ...(bookedBySlot[session.id]
+                                    ? [plural(bookedBySlot[session.id].bookings, 'prenotazione annullata', 'prenotazioni annullate')]
+                                    : []),
+                                ],
+                              },
+                            )
+                          }
+                        >
+                          <Icon name="trash" size={18} />
+                        </button>
+                      </span>
                     </article>
                   ))
                 )}

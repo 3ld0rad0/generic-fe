@@ -9,6 +9,7 @@ const COLUMNS = [
   ['Telefono', (b) => b.phone],
   ['Partecipanti', (b) => b.players],
   ['Pacchetto', (b) => (b.package ? (packageById(b.package)?.name ?? b.package) : '')],
+  ['Prezzo a persona', (b) => (b.package && b.unit_price_cents != null ? (b.unit_price_cents / 100).toFixed(2).replace('.', ',') : '')],
   ['Prenotata il', (b) => createdAt(b.created_at)],
 ]
 
